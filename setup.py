@@ -10,16 +10,22 @@ with open('README.md') as f:
     readme = f.read()
 
 with open('LICENSE') as f:
-    license = f.read()
+    license_ = f.read()
+
+with open('requirements.txt') as f:
+    reqs = f.read().strip().split()
 
 setup(
     name='parlai',
     version='0.1.0',
-    description='Unified API for accessing dialog datasets.',
+    description=('A framework for training and evaluating AI models on a ' +
+                 'variety of openly available dialog datasets.'),
     long_description=readme,
     url='http://parl.ai/',
-    license=license,
+    license=license_,
     packages=find_packages(exclude=(
-        'data', 'docs', 'downloads', 'examples', 'tests')),
-    install_requires=['nltk'],
+        'data', 'docs', 'downloads', 'examples', 'logs', 'tests')),
+    install_requires=reqs,
+    maintainer='Alexander H Miller',
+    maintainer_email='ahm@fb.com',
 )
