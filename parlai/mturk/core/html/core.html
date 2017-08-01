@@ -309,7 +309,6 @@ of patent rights can be found in the PATENTS file in the same directory.
                     if (new_last_command_id > last_command_id) {
                         last_command_id = new_last_command_id;
                     }
-
                     command = data['command'];
                     if (command === 'COMMAND_GET_NEW_MESSAGES') {
                         get_new_messages();
@@ -322,6 +321,8 @@ of patent rights can be found in the PATENTS file in the same directory.
                         update_UI_for_response_type('expired');
                         hit_is_expired = true;
                         $("div#waiting-for-message").css("display", "none");
+                    } else if (command === 'COMMAND_SUBMIT_HIT') {
+                        all_done_callback();
                     }
                 }
                 polling_timer = setTimeout(polling_for_command, 1000);

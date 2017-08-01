@@ -20,7 +20,7 @@ from parlai.mturk.core.setup_aws import setup_aws, calculate_mturk_cost, check_m
 import threading
 from parlai.mturk.core.data_model import Base, Message
 from parlai.mturk.core.data_model import get_new_messages as _get_new_messages
-from parlai.mturk.core.data_model import COMMAND_GET_NEW_MESSAGES, COMMAND_SEND_MESSAGE, COMMAND_SHOW_DONE_BUTTON, COMMAND_EXPIRE_HIT
+from parlai.mturk.core.data_model import COMMAND_GET_NEW_MESSAGES, COMMAND_SEND_MESSAGE, COMMAND_SHOW_DONE_BUTTON, COMMAND_EXPIRE_HIT, COMMAND_SUBMIT_HIT
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -476,12 +476,15 @@ class MTurkAgent(Agent):
         print('Conversation ID: ' + str(self.conversation_id) + ', Agent ID: ' + self.id + ' - HIT is done.')
         return True
 
-    def shutdown(self, timeout=None): # Timeout in seconds, after which the HIT will be expired automatically
+    def shutdown(self, timeout=None, direct_submit=False): # Timeout in seconds, after which the HIT will be expired automatically
+        command_to_send = COMMAND_SHOW_DONE_BUTTON
+        if direct_submit:
+            command_to_send = COMMAND_SUBMIT_HIT
         if not self.hit_is_abandoned:
             self.manager.send_new_command(
                 task_group_id=self.manager.task_group_id,
                 conversation_id=self.conversation_id,
                 receiver_agent_id=self.id,
-                command=COMMAND_SHOW_DONE_BUTTON
+                command=command_to_send
             )
             return self.wait_for_hit_completion(timeout=timeout)
