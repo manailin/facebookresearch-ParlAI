@@ -129,8 +129,8 @@ function _send_event_to_agent(socket, worker_id, event_name, event_data, callbac
     lock.acquire(worker_id, function(){
       socket.to(worker_room_id).emit(event_name, event_data);
       waitUntil()
-      .interval(500)
-      .times(10)
+      .interval(50)
+      .times(100)
       .condition(function() {
         console.log(worker_id+': Waiting for: '+event_name + '_received');
         return (worker_id_to_event_name[worker_id] === event_name + '_received');
