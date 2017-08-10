@@ -69,12 +69,14 @@ def main():
                 world.parley()
             world.shutdown()
             world.review_work()
+            return mturk_agent
 
-        mturk_manager.start_task(
+        results = mturk_manager.start_task(
             eligibility_function=check_worker_eligibility,
             role_function=get_worker_role,
             task_function=run_conversation
         )
+        print(results)
     except:
         raise
     finally:
