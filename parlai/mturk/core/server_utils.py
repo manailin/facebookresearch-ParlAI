@@ -36,6 +36,8 @@ rds_security_group_name = 'parlai-mturk-db-security-group'
 rds_security_group_description = 'Security group for ParlAI MTurk DB'
 rds_db_instance_class = 'db.t2.medium'
 
+sqs_queue_name = 'parlai_mturk_queue_' + user_name
+
 parent_dir = os.path.dirname(os.path.abspath(__file__))
 server_source_directory_name = 'server'
 heroku_server_directory_name = 'heroku_server'
@@ -311,7 +313,53 @@ def setup_server(task_files_to_copy):
         db_password=rds_password
     )
     server_url = setup_heroku_server(task_files_to_copy=task_files_to_copy)
-    return server_url, db_host
+
+    sqs_queue_url = setup_sqs()
+
+    return server_url, db_host, sqs_queue_url
+
+def get_sqs_client():
+    return boto3.client('sqs', region_name=region_name)
+
+def setup_sqs():
+    client = get_sqs_client()
+
+    response = client.create_queue(QueueName=sqs_queue_name)
+
+    sqs_queue_url = response['QueueUrl']
+    user_account_id = sqs_queue_url.split('/')[-2]
+
+    policy_document = '''
+{
+  "Version": "2008-10-17",
+  "Id": "arn:aws:sqs:us-east-1:<user_account_id>:<queue_name>/MTurkOnlyPolicy",
+  "Statement": [
+    {
+      "Sid": "MTurkOnlyPolicy",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::755651556756:user/MTurk-SQS"
+      },
+      "Action": "SQS:SendMessage",
+      "Resource": "arn:aws:sqs:us-east-1:<user_account_id>:<queue_name>",
+      "Condition": {
+        "Bool": {
+          "aws:SecureTransport": "true"
+        }
+      }
+    }
+  ]
+}
+'''
+    policy_document = policy_document.replace('<user_account_id>', user_account_id)
+    policy_document = policy_document.replace('<queue_name>', sqs_queue_name)
+
+    response = client.set_queue_attributes(
+        QueueUrl=sqs_queue_url,
+        Attributes={'Policy': policy_document}
+    )
+
+    return sqs_queue_url
 
 if __name__ == "__main__":
     if sys.argv[1] == 'remove_rds':

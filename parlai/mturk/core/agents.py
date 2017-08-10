@@ -14,10 +14,10 @@ import random
 import string
 import json
 from parlai.core.agents import create_agent_from_shared
-from parlai.mturk.core.server_utils import setup_server, create_hit_config
-from parlai.mturk.core.mturk_utils import calculate_mturk_cost, check_mturk_balance, create_hit_type, create_hit_with_hit_type, get_mturk_client, setup_aws_credentials
+from parlai.mturk.core.server_utils import setup_server, create_hit_config, get_sqs_client
+from parlai.mturk.core.mturk_utils import calculate_mturk_cost, check_mturk_balance, create_hit_type, create_hit_with_hit_type, update_notification_settings, get_mturk_client, setup_aws_credentials
 import threading
-from parlai.mturk.core.data_model import COMMAND_SEND_MESSAGE, COMMAND_SHOW_DONE_BUTTON, COMMAND_EXPIRE_HIT, COMMAND_SUBMIT_HIT, COMMAND_CHANGE_CONVERSATION
+from parlai.mturk.core.data_model import COMMAND_SHOW_DONE_BUTTON, COMMAND_EXPIRE_HIT, COMMAND_SUBMIT_HIT, COMMAND_CHANGE_CONVERSATION, COMMAND_SHOW_INPUT_BOX, COMMAND_HIDE_INPUT_BOX, COMMAND_SHOW_WAITING_MESSAGE, COMMAND_HIDE_WAITING_MESSAGE
 from botocore.exceptions import ClientError
 import uuid
 from socketIO_client_nexus import SocketIO
@@ -84,6 +84,7 @@ class MTurkManager():
         self.mturk_agent_list_lock = threading.Lock()
         self.event_from_worker = {}
         self.event_from_worker_condition = threading.Condition()
+        self.sqs_queue_url = None
 
         self.worker_global_id_to_event_queue['[Server]'] = []
         self.worker_global_id_to_event_status['[Server]'] = {}
@@ -91,6 +92,43 @@ class MTurkManager():
         self.worker_global_id_to_event_queue_thread['[Server]'] = threading.Thread(target=self._send_events_from_event_queue, args=(None, '[Server]',))
         self.worker_global_id_to_event_queue_thread['[Server]'].daemon = True
         self.worker_global_id_to_event_queue_thread['[Server]'].start()
+
+    def _check_hit_status(self):
+        # Check if HIT is returned
+        client = get_sqs_client()
+        while True:
+            response = client.receive_message(
+                QueueUrl=self.sqs_queue_url,
+                AttributeNames=['All'],
+                MessageAttributeNames=['All'],
+                MaxNumberOfMessages=10,
+                VisibilityTimeout=30,
+            )
+
+            if 'Messages' in response:
+                messages = response['Messages']
+                for message in messages:
+                    receipt_handle = message['ReceiptHandle']
+                    response = client.delete_message(
+                        QueueUrl=self.sqs_queue_url,
+                        ReceiptHandle=receipt_handle
+                    )
+
+                    body_dict = json.loads(message['Body'])
+                    for event in body_dict['Events']:
+                        hit_id = event['HITId']
+                        worker_global_ids = self.worker_global_id_to_instance.keys()
+                        for worker_global_id in worker_global_ids:
+                            if hit_id in worker_global_id:
+                                mturk_agent = self.worker_global_id_to_instance[worker_global_id]
+                                mturk_agent.hit_is_returned = True
+                                if mturk_agent.is_in_task():
+                                    print_and_log('Worker has returned the HIT. Since the worker is already in a task conversation, we are expiring the HIT.', False)
+                                    self.expire_hit(hit_id=hit_id)
+                                else:
+                                    print_and_log('Worker has returned the HIT. Since the worker is still in onboarding, we will not expire the HIT.', False)
+
+            time.sleep(1)
 
     def setup_server(self, task_directory_path=None):
         print_and_log("\nYou are going to allow workers from Amazon Mechanical Turk to be an agent in ParlAI.\nDuring this process, Internet connection is required, and you should turn off your computer's auto-sleep feature.\n")
@@ -121,7 +159,7 @@ class MTurkManager():
         self.task_files_to_copy.append(os.path.join(task_directory_path, 'html', 'cover_page.html'))
         for mturk_agent_id in self.mturk_agent_ids:
             self.task_files_to_copy.append(os.path.join(task_directory_path, 'html', mturk_agent_id+'_index.html'))
-        self.server_url, db_host = setup_server(task_files_to_copy = self.task_files_to_copy)
+        self.server_url, db_host, self.sqs_queue_url = setup_server(task_files_to_copy = self.task_files_to_copy)
         print_and_log(self.server_url, False)
 
         print_and_log('RDS: Cleaning database...')
@@ -131,7 +169,9 @@ class MTurkManager():
         response = requests.get(self.server_url+'/clean_database', params=params)
         assert(response.status_code != '200')
 
-        print_and_log('Local: Setting up SocketIO...')
+        self.check_hit_status_thread = threading.Thread(target=self._check_hit_status)
+        self.check_hit_status_thread.daemon = True
+        self.check_hit_status_thread.start()
 
         print_and_log("MTurk server setup done.\n")
 
@@ -259,6 +299,9 @@ class MTurkManager():
         trial_timeout = 5
         worker_global_id = self.get_worker_global_id(hit_id, worker_id)
         while True:
+            if (not worker_global_id == '[Server]') and worker_global_id in self.worker_global_id_to_instance and self.worker_global_id_to_instance[worker_global_id].hit_is_returned: # Stop sending events if the HIT is already returned
+                break
+
             if len(self.worker_global_id_to_event_queue[worker_global_id]) > 0:
                 with self.worker_global_id_to_event_queue_lock[worker_global_id]:
                     for event_info in self.worker_global_id_to_event_queue[worker_global_id]:
@@ -568,6 +611,9 @@ class MTurkManager():
             assignment_duration_in_seconds=self.opt.get('assignment_duration_in_seconds', 30 * 60), # Set to 30 minutes by default
             is_sandbox=self.opt['is_sandbox']
         )
+
+        update_notification_settings(hit_type_id, self.sqs_queue_url, self.is_sandbox)
+
         mturk_chat_url = self.server_url + "/chat_index?task_group_id="+str(self.task_group_id)
         print_and_log(mturk_chat_url, False)
         mturk_page_url = None
@@ -668,39 +714,20 @@ class MTurkAgent(Agent):
         self.new_message = None
         self.new_message_lock = threading.Lock()
 
-        # self.check_hit_status_thread = threading.Thread(target=self._check_hit_status)
-        # self.check_hit_status_thread.daemon = True
-        # self.check_hit_status_thread.start()
-
-    def _check_hit_status(self):
-        # Check if HIT is returned
-        while True:
-            if self.hit_id:
-                response = self.manager.get_hit(hit_id=self.hit_id)
-                if response['HIT']['NumberOfAssignmentsPending'] == 1: # Amazon MTurk system acknowledges that the HIT is accepted
-                    print_and_log('Worker has accepted the HIT (acknowledged by MTurk API).', False)
-                    self.hit_is_accepted = True
-                    break
-            time.sleep(5) # ThrottlingException might happen if we poll too frequently
-        while True:
-            if self.hit_id:
-                response = self.manager.get_hit(hit_id=self.hit_id)
-                if response['HIT']['NumberOfAssignmentsAvailable'] == 1: # HIT is returned
-                    self.hit_is_returned = True
-                    # If the worker is still in onboarding, then we don't need to expire the HIT. 
-                    # If the worker is already in a conversation, then we should expire the HIT to keep the total number of available HITs consistent with the number of conversations left.
-                    if self.is_in_task():
-                        print_and_log('Worker has returned the HIT. Since the worker is already in a task conversation, we are expiring the HIT.', False)
-                        self.manager.expire_hit(hit_id=self.hit_id)
-                    else:
-                        print_and_log('Worker has returned the HIT. Since the worker is still in onboarding, we will not expire the HIT.', False)
-                    return # we will not be using this MTurkAgent object for other worker, so no need to check its status anymore
-            time.sleep(5) # ThrottlingException might happen if we poll too frequently
-
     def is_in_task(self):
         return 't_' in self.conversation_id
 
     def observe(self, msg):
+        self.manager.send_new_command(
+            task_group_id=self.manager.task_group_id,
+            conversation_id=self.conversation_id,
+            sender_agent_id='[World]',
+            receiver_agent_id=self.id,
+            receiver_hit_id=self.hit_id,
+            receiver_worker_id=self.worker_id,
+            command=COMMAND_HIDE_WAITING_MESSAGE
+        )
+
         self.manager.send_new_message(
             task_group_id=self.manager.task_group_id,
             conversation_id=self.conversation_id,
@@ -719,20 +746,22 @@ class MTurkAgent(Agent):
             receiver_agent_id=self.id,
             receiver_hit_id=self.hit_id,
             receiver_worker_id=self.worker_id,
-            command=COMMAND_SEND_MESSAGE
+            command=COMMAND_SHOW_INPUT_BOX
         )
 
         if timeout:
             start_time = time.time()
 
         # Wait for agent's new message
+        msg = None
         while True:
             # Check if Turker sends a message
             if self.new_message:
                 with self.new_message_lock:
                     new_message = self.new_message
                     self.new_message = None
-                    return new_message
+                    msg = new_message
+                    break
             
             # Check if the Turker already returned the HIT
             if self.hit_is_returned:
@@ -741,7 +770,7 @@ class MTurkAgent(Agent):
                     'text': RETURN_MESSAGE,
                     'episode_done': True
                 }
-                return msg
+                break
 
             # Check if the Turker waited too long to respond
             if timeout:
@@ -754,8 +783,41 @@ class MTurkAgent(Agent):
                         'text': TIMEOUT_MESSAGE,
                         'episode_done': True
                     }
-                    return msg
+                    break
             time.sleep(0.1)
+
+        # Let the worker receives its own message
+        self.manager.send_new_message(
+            task_group_id=self.manager.task_group_id,
+            conversation_id=self.conversation_id,
+            sender_agent_id=msg['id'],
+            receiver_agent_id=self.id,
+            receiver_hit_id=self.hit_id,
+            receiver_worker_id=self.worker_id,
+            message=msg
+        )
+
+        self.manager.send_new_command(
+            task_group_id=self.manager.task_group_id,
+            conversation_id=self.conversation_id,
+            sender_agent_id='[World]',
+            receiver_agent_id=self.id,
+            receiver_hit_id=self.hit_id,
+            receiver_worker_id=self.worker_id,
+            command=COMMAND_HIDE_INPUT_BOX
+        )
+
+        self.manager.send_new_command(
+            task_group_id=self.manager.task_group_id,
+            conversation_id=self.conversation_id,
+            sender_agent_id='[World]',
+            receiver_agent_id=self.id,
+            receiver_hit_id=self.hit_id,
+            receiver_worker_id=self.worker_id,
+            command=COMMAND_SHOW_WAITING_MESSAGE
+        )
+
+        return msg
 
     def episode_done(self):
         return False

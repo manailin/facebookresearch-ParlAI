@@ -48,9 +48,13 @@ app.get('/chat_index', async function (req, res) {
   var mturk_agent_id = params['mturk_agent_id'] || null;
   var task_group_id = params['task_group_id'];
   var worker_id = params['workerId'] || null;
+  var hit_id = params['hitId'];
   var changing_conversation = params['changing_conversation'] || false;
 
-  if (assignment_id === 'ASSIGNMENT_ID_NOT_AVAILABLE') {
+  if ((await data_model.hit_record_exists(task_group_id, hit_id)) && !(await data_model.hit_worker_record_exists(task_group_id, hit_id, worker_id))) { // This HIT is already returned by another worker
+    res.send('Sorry, this HIT has been worked on by someone else before and will be expired soon. If there is "Skip HIT" button, please click on it to find out if the next HIT is available.');
+  }
+  else if (assignment_id === 'ASSIGNMENT_ID_NOT_AVAILABLE') {
     template_context['is_cover_page'] = true;
     res.render('cover_page.html', template_context);
   }
@@ -58,9 +62,9 @@ app.get('/chat_index', async function (req, res) {
     res.send("Sorry, but you can only work on this HIT once.");
   }
   else {
-    await data_model.add_worker_record(task_group_id, worker_id);
+    await data_model.add_worker_record(task_group_id, hit_id, worker_id);
+
     if (!conversation_id && !mturk_agent_id) { // if conversation info is not loaded yet
-      // TODO: change to a loading indicator
       template_context['is_init_page'] = true;
       res.render('mturk_index.html', template_context);
     }

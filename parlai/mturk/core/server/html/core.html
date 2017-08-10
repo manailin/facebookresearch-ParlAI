@@ -90,12 +90,6 @@
         }
     }
 
-    function wait_for_worker_input() {
-        update_UI_for_response_type('text_input');
-        $("div#waiting-for-message").css("display", "none");
-        $("input#id_text_input").focus();
-    }
-
     // Get URL parameter
     function get_url_parameter(sParam) {
         var sPageURL = decodeURIComponent(window.location.search.substring(1)),
@@ -198,7 +192,6 @@
     var message_list = [];
     var socket = null;
     var task_done = false;
-    var ui_state_lock = false; // We need to acquire this lock first before attempting to update the UI state with new messages or commands.
     var event_callback_is_handled = {};
 
     /* ================= Message handling ================= */
@@ -323,32 +316,9 @@
             $("button#id_send_msg_button").addClass("disabled");
             $("button#id_send_msg_button").prop("disabled", true);
 
-            function execute_with_ui_state_lock() {
-                if (ui_state_lock) {
-                    setTimeout(
-                        function () {
-                            execute_with_ui_state_lock();
-                        }, 
-                        50
-                    );
-                } else {
-                    ui_state_lock = true;
-                    send_message(text, '[World]', false, function(data){
-                        $("button#id_send_msg_button").removeClass("disabled");
-                        $("button#id_send_msg_button").prop("disabled", false);
-                        $("input#id_text_input").val("");
-                        $("div#response-type-text-input").css("display", "none");
-                        var new_messages = [];
-                        new_messages.push(data);
-                        if (handle_new_messages(new_messages) && !task_done) {
-                            $("div#waiting-for-message").css("display", "");
-                        }
-                        after_send_message();
-                        ui_state_lock = false;
-                    });
-                }
-            }
-            execute_with_ui_state_lock();
+            send_message(text, '[World]', false, function(data){
+                after_send_message();
+            });
         }
     });
 
@@ -429,46 +399,43 @@
                         return;
                     }
 
-                    function execute_with_ui_state_lock() {
-                        if (ui_state_lock) {
-                            setTimeout(
-                                function() {
-                                    execute_with_ui_state_lock();
-                                },
-                                50
-                            );
-                        } else {
-                            ui_state_lock = true;
-                            if (command === 'COMMAND_SEND_MESSAGE') {
-                                wait_for_worker_input();
-                            } else if (command === 'COMMAND_SHOW_DONE_BUTTON') {
-                                task_done = true;
-                                update_UI_for_response_type('done');
-                                $("div#waiting-for-message").css("display", "none");
-                            } else if (command === 'COMMAND_EXPIRE_HIT') {
-                                update_UI_for_response_type('expired');
-                                hit_is_expired = true;
-                                $("div#waiting-for-message").css("display", "none");
-                            } else if (command === 'COMMAND_SUBMIT_HIT') {
-                                all_done_callback();
-                            } else if (command === 'COMMAND_CHANGE_CONVERSATION') {
-                                command_data = data['command_data'];
-                                console.log('current conversation_id: ' + conversation_id);
-                                if ((conversation_id === null && (command_data['conversation_id'].indexOf('o_') !== -1) || (command_data['conversation_id'].indexOf('t_') !== -1)) || (conversation_id.indexOf('o_') !== -1 && command_data['conversation_id'].indexOf('t_') !== -1)) // Only move from init state to onboarding / task, or from onboarding to task
-                                    {
-                                    console.log("Redirecting to new URL...");
-                                    var new_url = replace_url_parameter(window.location.href, 'mturk_agent_id', command_data['agent_id']);
-                                    new_url = replace_url_parameter(new_url, 'conversation_id', command_data['conversation_id']);
-                                    new_url = replace_url_parameter(new_url, 'changing_conversation', true);
+                    if (command === 'COMMAND_SHOW_INPUT_BOX') {
+                        update_UI_for_response_type('text_input');
+                        $("button#id_send_msg_button").removeClass("disabled");
+                        $("button#id_send_msg_button").prop("disabled", false);
+                        $("input#id_text_input").val("");
+                        $("input#id_text_input").focus();
+                    } else if (command === 'COMMAND_HIDE_INPUT_BOX') {
+                        update_UI_for_response_type('idle');
+                    } else if (command === 'COMMAND_SHOW_WAITING_MESSAGE') {
+                        $("div#waiting-for-message").css("display", "");
+                        scroll_conversation_to_bottom();
+                    } else if (command === 'COMMAND_HIDE_WAITING_MESSAGE') {
+                        $("div#waiting-for-message").css("display", "none");
+                    } else if (command === 'COMMAND_SHOW_DONE_BUTTON') {
+                        task_done = true;
+                        update_UI_for_response_type('done');
+                        $("div#waiting-for-message").css("display", "none");
+                    } else if (command === 'COMMAND_EXPIRE_HIT') {
+                        update_UI_for_response_type('expired');
+                        hit_is_expired = true;
+                        $("div#waiting-for-message").css("display", "none");
+                    } else if (command === 'COMMAND_SUBMIT_HIT') {
+                        all_done_callback();
+                    } else if (command === 'COMMAND_CHANGE_CONVERSATION') {
+                        command_data = data['command_data'];
+                        console.log('current conversation_id: ' + conversation_id);
+                        if ((conversation_id === null && (command_data['conversation_id'].indexOf('o_') !== -1) || (command_data['conversation_id'].indexOf('t_') !== -1)) || (conversation_id.indexOf('o_') !== -1 && command_data['conversation_id'].indexOf('t_') !== -1)) // Only move from init state to onboarding / task, or from onboarding to task
+                            {
+                            console.log("Redirecting to new URL...");
+                            var new_url = replace_url_parameter(window.location.href, 'mturk_agent_id', command_data['agent_id']);
+                            new_url = replace_url_parameter(new_url, 'conversation_id', command_data['conversation_id']);
+                            new_url = replace_url_parameter(new_url, 'changing_conversation', true);
 
-                                    window.location.href = new_url; // Reload page to get agent-specific template
-                                }
-                            }
-                            after_receive_command(command);
-                            ui_state_lock = false;
+                            window.location.href = new_url; // Reload page to get agent-specific template
                         }
                     }
-                    execute_with_ui_state_lock();
+                    after_receive_command(command);
                 }
             );
         });
@@ -494,24 +461,10 @@
                 return;
             }
 
-            function execute_with_ui_state_lock() {
-                if (ui_state_lock) {
-                    setTimeout(
-                        function() {
-                            execute_with_ui_state_lock();
-                        },
-                        50
-                    );
-                } else {
-                    ui_state_lock = true;
-                    var new_messages = [];
-                    new_messages.push(message);
-                    handle_new_messages(new_messages);
-                    after_receive_message(message);
-                    ui_state_lock = false;
-                }
-            }
-            execute_with_ui_state_lock();
+            var new_messages = [];
+            new_messages.push(message);
+            handle_new_messages(new_messages);
+            after_receive_message(message);
         });
     }
 

@@ -52,12 +52,14 @@ while not "There are no HITs in this group available to you at the moment." in d
     driver.switch_to.frame(iframe)
     
     # Send message
-    for i in range(30):
-        input_box = WebDriverWait(driver, 30).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#id_text_input")))
-        input_box.send_keys("text to send")
+    for i in range(50):
         print("Sending message...")
-        input_box.send_keys(Keys.RETURN)
-        input_box = WebDriverWait(driver, 30).until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#id_text_input")))
+        input_box = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#id_text_input")))
+        input_box.send_keys("text to send")
+        #input_box.send_keys(Keys.RETURN)
+        send_button = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#id_send_msg_button")))
+        send_button.click()
+        wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#id_text_input")))
 
     # Click "Done with this HIT" button
     wait = WebDriverWait(driver, 30)

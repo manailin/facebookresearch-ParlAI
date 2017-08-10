@@ -72,6 +72,8 @@ class QADataCollectionWorld(MTurkTaskWorld):
                 print(self.response)
             except:
                 pass
+            if self.response['text'] == '[RETURNED]':
+                break
 
         self.episodeDone = True
 
@@ -83,7 +85,7 @@ class QADataCollectionWorld(MTurkTaskWorld):
 
     def shutdown(self):
         self.task.shutdown()
-        self.mturk_agent.shutdown()
+        self.mturk_agent.shutdown(timeout=60)
 
     def review_work(self):
         pass

@@ -227,3 +227,27 @@ def create_hit_with_hit_type(page_url, hit_type_id, num_assignments, is_sandbox)
     if not is_sandbox:
         hit_link = "https://www.mturk.com/mturk/preview?groupId=" + hit_type_id
     return hit_link, hit_id
+
+def update_notification_settings(hit_type_id, sqs_queue_url, is_sandbox):
+    client = boto3.client(
+        service_name = 'mturk',
+        region_name = 'us-east-1',
+        endpoint_url = 'https://mturk-requester-sandbox.us-east-1.amazonaws.com'
+    )
+
+    # Region is always us-east-1
+    if not is_sandbox:
+        client = boto3.client(service_name = 'mturk', region_name='us-east-1')
+
+    response = client.update_notification_settings(
+        HITTypeId=hit_type_id,
+        Notification={
+            'Destination': sqs_queue_url,
+            'Transport': 'SQS',
+            'Version': '2006-05-05',
+            'EventTypes': [
+                'AssignmentReturned'
+            ]
+        },
+        Active=True
+    )
