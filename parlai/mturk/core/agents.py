@@ -754,6 +754,7 @@ class MTurkAgent(Agent):
 
         # Wait for agent's new message
         msg = None
+        has_received_message = False
         while True:
             # Check if Turker sends a message
             if self.new_message:
@@ -761,6 +762,7 @@ class MTurkAgent(Agent):
                     new_message = self.new_message
                     self.new_message = None
                     msg = new_message
+                    has_received_message = True
                     break
             
             # Check if the Turker already returned the HIT
@@ -786,36 +788,37 @@ class MTurkAgent(Agent):
                     break
             time.sleep(0.1)
 
-        # Let the worker receives its own message
-        self.manager.send_new_message(
-            task_group_id=self.manager.task_group_id,
-            conversation_id=self.conversation_id,
-            sender_agent_id=msg['id'],
-            receiver_agent_id=self.id,
-            receiver_hit_id=self.hit_id,
-            receiver_worker_id=self.worker_id,
-            message=msg
-        )
+        if has_received_message:
+            # Let the worker receives its own message
+            self.manager.send_new_message(
+                task_group_id=self.manager.task_group_id,
+                conversation_id=self.conversation_id,
+                sender_agent_id=msg['id'],
+                receiver_agent_id=self.id,
+                receiver_hit_id=self.hit_id,
+                receiver_worker_id=self.worker_id,
+                message=msg
+            )
 
-        self.manager.send_new_command(
-            task_group_id=self.manager.task_group_id,
-            conversation_id=self.conversation_id,
-            sender_agent_id='[World]',
-            receiver_agent_id=self.id,
-            receiver_hit_id=self.hit_id,
-            receiver_worker_id=self.worker_id,
-            command=COMMAND_HIDE_INPUT_BOX
-        )
+            self.manager.send_new_command(
+                task_group_id=self.manager.task_group_id,
+                conversation_id=self.conversation_id,
+                sender_agent_id='[World]',
+                receiver_agent_id=self.id,
+                receiver_hit_id=self.hit_id,
+                receiver_worker_id=self.worker_id,
+                command=COMMAND_HIDE_INPUT_BOX
+            )
 
-        self.manager.send_new_command(
-            task_group_id=self.manager.task_group_id,
-            conversation_id=self.conversation_id,
-            sender_agent_id='[World]',
-            receiver_agent_id=self.id,
-            receiver_hit_id=self.hit_id,
-            receiver_worker_id=self.worker_id,
-            command=COMMAND_SHOW_WAITING_MESSAGE
-        )
+            self.manager.send_new_command(
+                task_group_id=self.manager.task_group_id,
+                conversation_id=self.conversation_id,
+                sender_agent_id='[World]',
+                receiver_agent_id=self.id,
+                receiver_hit_id=self.hit_id,
+                receiver_worker_id=self.worker_id,
+                command=COMMAND_SHOW_WAITING_MESSAGE
+            )
 
         return msg
 

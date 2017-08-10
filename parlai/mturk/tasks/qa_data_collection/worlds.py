@@ -67,12 +67,14 @@ class QADataCollectionWorld(MTurkTaskWorld):
         for i in range(50):
             ad['text'] = 'Say something ' + str(i)
             self.mturk_agent.observe(validate(ad))
-            self.response = self.mturk_agent.act()
+            self.response = self.mturk_agent.act(timeout=60)
             try:
                 print(self.response)
             except:
                 pass
             if self.response['text'] == '[RETURNED]':
+                break
+            if self.response['text'] == '[TIMEOUT]':
                 break
 
         self.episodeDone = True
