@@ -163,10 +163,11 @@ class MTurkManager():
             self.worker_global_id_to_onboard_thread[self.get_worker_global_id(mturk_agent.hit_id, mturk_agent.worker_id)] = onboard_thread
 
     def start_task(self, eligibility_function, role_function, task_function):
-        def _task_function(opt, workers):
+        def _task_function(opt, workers, conversation_index, results):
             print("Starting task...")
-            task_function(opt=opt, workers=workers)
+            results[conversation_index] = task_function(opt=opt, workers=workers)
 
+        results = {}
         while True:
             with self.worker_pool_change_condition:
                 self.worker_candidates = []
@@ -186,7 +187,7 @@ class MTurkManager():
                         
                     self.worker_candidates.sort(key=lambda x: self.mturk_agent_ids.index(x.id))
 
-                    task_thread = threading.Thread(target=_task_function, args=(self.opt, self.worker_candidates))
+                    task_thread = threading.Thread(target=_task_function, args=(self.opt, self.worker_candidates, self.conversation_index, results))
                     task_thread.daemon = True
                     task_thread.start()
                     self.task_threads.append(task_thread)
@@ -195,7 +196,11 @@ class MTurkManager():
                         # Wait for all conversations to finish, then break from the while loop
                         for thread in self.task_threads:
                             thread.join() 
-                        break
+                        result_list = []
+                        for i in range(self.opt['num_conversations']):
+                            result = results[i+1]
+                            result_list.append(result)
+                        return result_list
                 self.worker_pool_change_condition.wait()
 
     def _send_event_to_socket(self, event_name, event_data, callback=None):
