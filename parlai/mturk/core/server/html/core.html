@@ -289,6 +289,7 @@
                     conversation_id: conversation_id,
                     sender_agent_id: cur_agent_id,
                     sender_worker_id: worker_id,
+                    sender_hit_id: hit_id,
                     receiver_agent_id: receiver_agent_id,
                     receiver_worker_id: '[World]',
                     message_id: uuidv4(),
@@ -326,7 +327,7 @@
                         function () {
                             execute_with_ui_state_lock();
                         }, 
-                        500
+                        50
                     );
                 } else {
                     ui_state_lock = true;
@@ -354,7 +355,7 @@
             console.log("Sending: "+event_name+event_data);
         }
         var event_sent = false;
-        var timeout = 2; // in seconds
+        var timeout = 5; // in seconds
         var start_time = Date.now();
         function check_event_sent() {
             if (event_sent === false) {
@@ -366,7 +367,7 @@
                         function() {
                             check_event_sent();
                         }, 
-                        500
+                        50
                     );
                 }
             }
@@ -429,7 +430,7 @@
                                 function() {
                                     execute_with_ui_state_lock();
                                 },
-                                500
+                                50
                             );
                         } else {
                             ui_state_lock = true;
@@ -493,7 +494,7 @@
                         function() {
                             execute_with_ui_state_lock();
                         },
-                        500
+                        50
                     );
                 } else {
                     ui_state_lock = true;

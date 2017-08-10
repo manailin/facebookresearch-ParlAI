@@ -43,7 +43,6 @@ while not "There are no HITs in this group available to you at the moment." in d
     # Click "Accept" button
     wait = WebDriverWait(driver, 30)
     accept_button = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '''#cookieDependentFunctionality > input[type="image"]''')))
-    time.sleep(random.uniform(2, 10))
     print("Clicking on Accept button...")
     accept_button.send_keys("\n")        
      
@@ -51,26 +50,24 @@ while not "There are no HITs in this group available to you at the moment." in d
     iframe = WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body > form > iframe")))
     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
     driver.switch_to.frame(iframe)
-    input_box = WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.CSS_SELECTOR, "#id_text_input")))
     
     # Send message
-    time.sleep(random.uniform(2, 10))
-    input_box.send_keys("text to send")
-    time.sleep(random.uniform(2, 10))
-    print("Sending message...")
-    input_box.send_keys(Keys.RETURN)
+    for i in range(30):
+        input_box = WebDriverWait(driver, 30).until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#id_text_input")))
+        input_box.send_keys("text to send")
+        print("Sending message...")
+        input_box.send_keys(Keys.RETURN)
+        input_box = WebDriverWait(driver, 30).until(EC.invisibility_of_element_located((By.CSS_SELECTOR, "#id_text_input")))
 
     # Click "Done with this HIT" button
     wait = WebDriverWait(driver, 30)
     done_button = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "#done-button")))
-    time.sleep(random.uniform(2, 10))
     print("Clicking on Done button...")
     done_button.click()
     total_hits_done += 1
     print("Total HITs done: " + str(total_hits_done))
     print("\n")
 
-    time.sleep(random.uniform(2, 10))
     print("Going to next HIT...")
     driver.get(sys.argv[1])
 

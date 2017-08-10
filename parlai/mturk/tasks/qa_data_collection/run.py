@@ -49,7 +49,7 @@ def main():
                 world.parley()
             world.shutdown()
 
-        mturk_manager.set_onboard_function(onboard_function=run_onboard)
+        mturk_manager.set_onboard_function(onboard_function=None)
         mturk_manager.ready_to_accept_workers()
 
         def check_worker_eligibility(worker):
