@@ -199,6 +199,7 @@
     var socket = null;
     var task_done = false;
     var ui_state_lock = false; // We need to acquire this lock first before attempting to update the UI state with new messages or commands.
+    var event_callback_is_handled = {};
 
     /* ================= Message handling ================= */
 
@@ -303,6 +304,7 @@
                 _send_event_to_socket(
                     'agent_send_message', 
                     message,
+                    uuidv4(),
                     function (data) {
                         if (verbose_log) console.log(object_to_string(data));
 
@@ -350,7 +352,7 @@
         }
     });
 
-    function _send_event_to_socket(event_name, event_data, callback_function) {
+    function _send_event_to_socket(event_name, event_data, event_id, callback_function) {
         if (verbose_log) {
             console.log("Sending: "+event_name+event_data);
         }
@@ -361,7 +363,7 @@
             if (event_sent === false) {
                 if ((Date.now() - start_time) > (timeout * 1000)) { // Timeout
                     console.log(event_name + ' not acknowledged by server. Sending event again.');
-                    return _send_event_to_socket(event_name, event_data, callback_function);
+                    return _send_event_to_socket(event_name, event_data, event_id, callback_function);
                 } else {
                     setTimeout(
                         function() {
@@ -374,8 +376,9 @@
         }
         socket.emit(event_name, event_data, function(data) {
             event_sent = true;
-            if (callback_function) {
+            if (callback_function && (!event_callback_is_handled[event_id])) {
                 callback_function(data);
+                event_callback_is_handled[event_id] = true;
             }
         });
         check_event_sent();
@@ -396,6 +399,7 @@
                     hit_id: hit_id,
                     worker_id: worker_id
                 },
+                uuidv4(),
                 function(data) {
                     if (verbose_log) console.log(object_to_string(data));
                 }
@@ -413,6 +417,7 @@
                 {
                     by_worker_id: worker_id
                 },
+                uuidv4(),
                 function() {
                     if (commands_received[data['command_id']]) {
                         return;
@@ -475,7 +480,8 @@
                 'new_message_received',
                 {
                     by_worker_id: worker_id
-                }
+                },
+                uuidv4()
             );
 
             if (messages_received[message['message_id']]) {
