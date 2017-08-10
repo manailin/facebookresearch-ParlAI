@@ -32,7 +32,9 @@ and on the left side of the chat page. Supports HTML formatting.
 """
 task_config['task_description'] = \
 '''
-Type any text 50 times. Please make sure to send each message within 1 minute, otherwise the HIT will time out.
+Type any text 50 times.<br><br>
+
+Please make sure to send each message within 1 minute, otherwise the HIT will time out.<br><br>
 
 If the HIT gets stuck, please take a screenshot and email it to the requester for compensation (the same amount as the HIT).<br><br>
 
