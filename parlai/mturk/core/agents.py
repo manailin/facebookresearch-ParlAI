@@ -61,17 +61,16 @@ class MTurkManager():
         self.socketIO = None
         self.run_id = None
         self.mturk_agent_ids = mturk_agent_ids
-        self.hit_id_list = []
         self.task_files_to_copy = None
         self.is_sandbox = opt['is_sandbox']
-        self.worker_pool = []
-        self.worker_pool_change_condition = threading.Condition()
-        self.worker_index = 0
         self.worker_candidates = None
         self.onboard_function = None
+
+        self.hit_id_list = []
+        self.worker_pool = []
+        self.worker_pool_change_condition = threading.Condition()
         self.task_threads = []
         self.conversation_index = 0
-        self.num_completed_conversations = 0
         self.messages_received = set()
         self.commands_received = set()
         self.worker_global_id_to_instance = {}
@@ -80,18 +79,9 @@ class MTurkManager():
         self.worker_global_id_to_event_status = {}
         self.worker_global_id_to_event_queue_lock = {}
         self.worker_global_id_to_event_queue_thread = {}
-        self.mturk_agent_list = []
-        self.mturk_agent_list_lock = threading.Lock()
         self.event_from_worker = {}
         self.event_from_worker_condition = threading.Condition()
         self.sqs_queue_url = None
-
-        self.worker_global_id_to_event_queue['[Server]'] = []
-        self.worker_global_id_to_event_status['[Server]'] = {}
-        self.worker_global_id_to_event_queue_lock['[Server]'] = threading.Lock()
-        self.worker_global_id_to_event_queue_thread['[Server]'] = threading.Thread(target=self._send_events_from_event_queue, args=(None, '[Server]',))
-        self.worker_global_id_to_event_queue_thread['[Server]'].daemon = True
-        self.worker_global_id_to_event_queue_thread['[Server]'].start()
 
     def _check_hit_status(self):
         # Check if HIT is returned
@@ -167,7 +157,7 @@ class MTurkManager():
             'db_host': db_host
         }
         response = requests.get(self.server_url+'/clean_database', params=params)
-        assert(response.status_code != '200')
+        assert(response.status_code == 200)
 
         self.check_hit_status_thread = threading.Thread(target=self._check_hit_status)
         self.check_hit_status_thread.daemon = True
@@ -181,6 +171,26 @@ class MTurkManager():
     def start_new_run(self):
         self.run_id = str(int(time.time()))
         self.task_group_id = str(self.opt['task']) + '_' + str(self.run_id)
+
+        # Reset state
+        self.conversation_index = 0
+        self.hit_id_list = []
+        self.worker_pool = []
+        self.task_threads = []
+        self.worker_global_id_to_instance = {}
+        self.worker_global_id_to_onboard_thread = {}
+        self.worker_global_id_to_event_queue = {}
+        self.worker_global_id_to_event_status = {}
+        self.worker_global_id_to_event_queue_lock = {}
+        self.worker_global_id_to_event_queue_thread = {}
+        self.event_from_worker = {}
+        
+        self.worker_global_id_to_event_queue['[Server]'] = []
+        self.worker_global_id_to_event_status['[Server]'] = {}
+        self.worker_global_id_to_event_queue_lock['[Server]'] = threading.Lock()
+        self.worker_global_id_to_event_queue_thread['[Server]'] = threading.Thread(target=self._send_events_from_event_queue, args=(None, '[Server]',))
+        self.worker_global_id_to_event_queue_thread['[Server]'].daemon = True
+        self.worker_global_id_to_event_queue_thread['[Server]'].start()
 
     def set_onboard_function(self, onboard_function):
         self.onboard_function = onboard_function
@@ -300,6 +310,9 @@ class MTurkManager():
         worker_global_id = self.get_worker_global_id(hit_id, worker_id)
         while True:
             if (not worker_global_id == '[Server]') and worker_global_id in self.worker_global_id_to_instance and self.worker_global_id_to_instance[worker_global_id].hit_is_returned: # Stop sending events if the HIT is already returned
+                break
+
+            if not worker_global_id in self.worker_global_id_to_event_queue: # The current HIT group is done, should exit this thread
                 break
 
             if len(self.worker_global_id_to_event_queue[worker_global_id]) > 0:
@@ -566,7 +579,6 @@ class MTurkManager():
     def create_agent(self, hit_id, assignment_id, worker_id):
         agent = MTurkAgent(manager=self, assignment_id=assignment_id, hit_id=hit_id, worker_id=worker_id, opt=self.opt)
         self.worker_global_id_to_instance[self.get_worker_global_id(hit_id, worker_id)] = agent
-        self.mturk_agent_list.append(agent)
         return agent      
 
     def send_new_message(self, task_group_id, conversation_id, sender_agent_id, receiver_agent_id, receiver_hit_id, receiver_worker_id, message):

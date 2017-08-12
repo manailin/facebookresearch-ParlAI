@@ -64,7 +64,7 @@ class QADataCollectionWorld(MTurkTaskWorld):
 
         #     self.episodeDone = True
 
-        for i in range(50):
+        for i in range(2):
             ad['text'] = 'Say something ' + str(i)
             self.mturk_agent.observe(validate(ad))
             self.response = self.mturk_agent.act(timeout=60)
@@ -87,7 +87,7 @@ class QADataCollectionWorld(MTurkTaskWorld):
 
     def shutdown(self):
         self.task.shutdown()
-        self.mturk_agent.shutdown(timeout=60)
+        self.mturk_agent.shutdown(timeout=90)
 
     def review_work(self):
         pass
