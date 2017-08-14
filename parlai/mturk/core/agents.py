@@ -106,17 +106,17 @@ class MTurkManager():
 
                     body_dict = json.loads(message['Body'])
                     for event in body_dict['Events']:
-                        hit_id = event['HITId']
+                        assignment_id = event['AssignmentId']
                         worker_global_ids = self.worker_global_id_to_instance.keys()
                         for worker_global_id in worker_global_ids:
-                            if hit_id in worker_global_id:
+                            if assignment_id in worker_global_id:
                                 mturk_agent = self.worker_global_id_to_instance[worker_global_id]
                                 mturk_agent.hit_is_returned = True
-                                if mturk_agent.is_in_task():
-                                    print_and_log('Worker has returned the HIT. Since the worker is already in a task conversation, we are expiring the HIT.', False)
-                                    self.expire_hit(hit_id=hit_id)
-                                else:
-                                    print_and_log('Worker has returned the HIT. Since the worker is still in onboarding, we will not expire the HIT.', False)
+                                # if mturk_agent.is_in_task():
+                                #     print_and_log('Worker has returned the HIT. Since the worker is already in a task conversation, we are expiring the HIT.', False)
+                                #     self.expire_hit(hit_id=hit_id)
+                                # else:
+                                #     print_and_log('Worker has returned the HIT. Since the worker is still in onboarding, we will not expire the HIT.', False)
 
             time.sleep(1)
 
@@ -206,11 +206,11 @@ class MTurkManager():
                     self.worker_pool.append(mturk_agent)
                     self.worker_pool_change_condition.notify()
 
-        if not self.get_worker_global_id(mturk_agent.hit_id, mturk_agent.worker_id) in self.worker_global_id_to_onboard_thread:
+        if not self.get_worker_global_id(mturk_agent.assignment_id, mturk_agent.worker_id) in self.worker_global_id_to_onboard_thread:
             onboard_thread = threading.Thread(target=_onboard_function, args=(mturk_agent,))
             onboard_thread.daemon = True
             onboard_thread.start()
-            self.worker_global_id_to_onboard_thread[self.get_worker_global_id(mturk_agent.hit_id, mturk_agent.worker_id)] = onboard_thread
+            self.worker_global_id_to_onboard_thread[self.get_worker_global_id(mturk_agent.assignment_id, mturk_agent.worker_id)] = onboard_thread
 
     def start_task(self, eligibility_function, role_function, task_function):
         def _task_function(opt, workers, conversation_index, results):
@@ -283,15 +283,15 @@ class MTurkManager():
         # thread.daemon = True
         # thread.start()
 
-    def _send_event_to_worker(self, hit_id, worker_id, event_name, event_data, callback=None):
-        worker_global_id = self.get_worker_global_id(hit_id, worker_id)
+    def _send_event_to_worker(self, assignment_id, worker_id, event_name, event_data, callback=None):
+        worker_global_id = self.get_worker_global_id(assignment_id, worker_id)
         event_id = str(uuid.uuid4())
 
         if not worker_global_id in self.worker_global_id_to_event_queue:
             self.worker_global_id_to_event_queue[worker_global_id] = []
             self.worker_global_id_to_event_queue_lock[worker_global_id] = threading.Lock()
             self.worker_global_id_to_event_status[worker_global_id] = {}
-            self.worker_global_id_to_event_queue_thread[worker_global_id] = threading.Thread(target=self._send_events_from_event_queue, args=(hit_id, worker_id,))
+            self.worker_global_id_to_event_queue_thread[worker_global_id] = threading.Thread(target=self._send_events_from_event_queue, args=(assignment_id, worker_id,))
             self.worker_global_id_to_event_queue_thread[worker_global_id].daemon = True
             self.worker_global_id_to_event_queue_thread[worker_global_id].start()
 
@@ -304,10 +304,10 @@ class MTurkManager():
             })
             self.worker_global_id_to_event_status[worker_global_id][event_id] = 'pending'
 
-    def _send_events_from_event_queue(self, hit_id, worker_id):
+    def _send_events_from_event_queue(self, assignment_id, worker_id):
         max_trials = 30
         trial_timeout = 5
-        worker_global_id = self.get_worker_global_id(hit_id, worker_id)
+        worker_global_id = self.get_worker_global_id(assignment_id, worker_id)
         while True:
             if (not worker_global_id == '[Server]') and worker_global_id in self.worker_global_id_to_instance and self.worker_global_id_to_instance[worker_global_id].hit_is_returned: # Stop sending events if the HIT is already returned
                 break
@@ -327,7 +327,7 @@ class MTurkManager():
                     elif self.worker_global_id_to_event_status[worker_global_id][event_info['event_id']] == 'sending':
                         num_trials = event_info['num_trials']
                         if num_trials >= max_trials: # Webclient is disconnected, should exit the while loop
-                            print_and_log(hit_id + ', ' + worker_id + ' is not able to receive event.')
+                            print_and_log(assignment_id + ', ' + worker_id + ' is not able to receive event.')
                             should_resend_event = False
                             break
 
@@ -382,11 +382,11 @@ class MTurkManager():
             }
             self.event_from_worker_condition.notifyAll()
 
-    def get_worker_global_id(self, hit_id, worker_id):
+    def get_worker_global_id(self, assignment_id, worker_id):
         if worker_id == '[Server]':
             return worker_id
         else:
-            return hit_id + '_' + worker_id
+            return assignment_id + '_' + worker_id
 
     def setup_socket(self, mturk_server_url, port):
         self.socketIO = SocketIO(mturk_server_url, port)
@@ -394,7 +394,7 @@ class MTurkManager():
         def on_socket_open(*args):
             print_and_log("on_socket_open: " + str(args), False)
             self._send_event_to_worker(
-                hit_id=None,
+                assignment_id=None,
                 worker_id='[Server]',
                 event_name='agent_alive',
                 event_data={
@@ -419,7 +419,7 @@ class MTurkManager():
             worker_id = agent_info['worker_id']
 
             self._send_event_to_worker(
-                hit_id=hit_id,
+                assignment_id=assignment_id,
                 worker_id=worker_id,
                 event_name='agent_alive_received',
                 event_data={'by_worker_id': '[World]'}
@@ -432,7 +432,7 @@ class MTurkManager():
             # Match MTurkAgent object with actual Turker
             mturk_agent = None
             is_new_agent = False
-            if not self.get_worker_global_id(hit_id, worker_id) in self.worker_global_id_to_instance:
+            if not self.get_worker_global_id(assignment_id, worker_id) in self.worker_global_id_to_instance:
                 mturk_agent = self.create_agent(
                     hit_id=hit_id,
                     assignment_id=assignment_id,
@@ -440,7 +440,7 @@ class MTurkManager():
                 )
                 is_new_agent = True
             else:
-                mturk_agent = self.worker_global_id_to_instance[self.get_worker_global_id(hit_id, worker_id)]
+                mturk_agent = self.worker_global_id_to_instance[self.get_worker_global_id(assignment_id, worker_id)]
                 is_new_agent = False
             print(mturk_agent, is_new_agent)
 
@@ -467,11 +467,11 @@ class MTurkManager():
 
             message = args[0]
 
-            sender_hit_id = message['sender_hit_id']
+            sender_assignment_id = message['sender_assignment_id']
             sender_worker_id = message['sender_worker_id']
             
             self._send_event_to_worker(
-                hit_id=sender_hit_id,
+                assignment_id=sender_assignment_id,
                 worker_id=sender_worker_id,
                 event_name='new_message_received',
                 event_data={'by_worker_id': '[World]'}
@@ -481,7 +481,7 @@ class MTurkManager():
                 # This message doesn't belong to the current task group
                 return
 
-            mturk_agent = self.worker_global_id_to_instance[self.get_worker_global_id(message['sender_hit_id'], message['sender_worker_id'])]
+            mturk_agent = self.worker_global_id_to_instance[self.get_worker_global_id(message['sender_assignment_id'], message['sender_worker_id'])]
             if message['conversation_id'] != mturk_agent.conversation_id or message['sender_agent_id'] != mturk_agent.id:
                 # There might be redundant messages sent from the server after the conversation is changed, so we add gating here to ignore those messages
                 return
@@ -496,7 +496,7 @@ class MTurkManager():
                 )
 
                 self.set_new_message(
-                    hit_id=message['sender_hit_id'],
+                    assignment_id=message['sender_assignment_id'],
                     worker_id=message['sender_worker_id'],
                     new_message=message
                 )
@@ -513,7 +513,7 @@ class MTurkManager():
     def _socket_receive_events(self):
         self.socketIO.wait()
 
-    def send_command_to_agent(self, task_group_id, conversation_id, sender_agent_id, receiver_agent_id, receiver_hit_id, receiver_worker_id, command, command_data=None):
+    def send_command_to_agent(self, task_group_id, conversation_id, sender_agent_id, receiver_agent_id, receiver_assignment_id, receiver_worker_id, command, command_data=None):
         command_dict = {
             'task_group_id': task_group_id,
             'conversation_id': conversation_id,
@@ -530,7 +530,7 @@ class MTurkManager():
             print_and_log("on_agent_send_command_response: "+str(args), False)
 
         self._send_event_to_worker(
-            hit_id=receiver_hit_id,
+            assignment_id=receiver_assignment_id,
             worker_id=receiver_worker_id, 
             event_name='agent_send_command',
             event_data=command_dict,
@@ -539,7 +539,7 @@ class MTurkManager():
 
         self.socketIO.wait_for_callbacks(seconds=0.1)
 
-    def send_message_to_agent(self, task_group_id, conversation_id, sender_agent_id, receiver_agent_id, receiver_hit_id, receiver_worker_id, message):
+    def send_message_to_agent(self, task_group_id, conversation_id, sender_agent_id, receiver_agent_id, receiver_assignment_id, receiver_worker_id, message):
         message['task_group_id'] = task_group_id
         message['conversation_id'] = conversation_id
         message['sender_agent_id'] = sender_agent_id
@@ -561,7 +561,7 @@ class MTurkManager():
             print_and_log("on_agent_send_message_response: "+str(args), False)
 
         self._send_event_to_worker(
-            hit_id=receiver_hit_id,
+            assignment_id=receiver_assignment_id,
             worker_id=receiver_worker_id, 
             event_name='agent_send_message',
             event_data=message,
@@ -570,35 +570,35 @@ class MTurkManager():
 
         self.socketIO.wait_for_callbacks(seconds=0.1)
 
-    def set_new_message(self, hit_id, worker_id, new_message):
-        if self.get_worker_global_id(hit_id, worker_id) in self.worker_global_id_to_instance:
-            agent = self.worker_global_id_to_instance[self.get_worker_global_id(hit_id, worker_id)]
+    def set_new_message(self, assignment_id, worker_id, new_message):
+        if self.get_worker_global_id(assignment_id, worker_id) in self.worker_global_id_to_instance:
+            agent = self.worker_global_id_to_instance[self.get_worker_global_id(assignment_id, worker_id)]
             with agent.new_message_lock:
                 agent.new_message = new_message
 
     def create_agent(self, hit_id, assignment_id, worker_id):
         agent = MTurkAgent(manager=self, assignment_id=assignment_id, hit_id=hit_id, worker_id=worker_id, opt=self.opt)
-        self.worker_global_id_to_instance[self.get_worker_global_id(hit_id, worker_id)] = agent
+        self.worker_global_id_to_instance[self.get_worker_global_id(assignment_id, worker_id)] = agent
         return agent      
 
-    def send_new_message(self, task_group_id, conversation_id, sender_agent_id, receiver_agent_id, receiver_hit_id, receiver_worker_id, message):
+    def send_new_message(self, task_group_id, conversation_id, sender_agent_id, receiver_agent_id, receiver_assignment_id, receiver_worker_id, message):
         self.send_message_to_agent(
             task_group_id=task_group_id,
             conversation_id=conversation_id,
             sender_agent_id=sender_agent_id,
             receiver_agent_id=receiver_agent_id,
-            receiver_hit_id=receiver_hit_id,
+            receiver_assignment_id=receiver_assignment_id,
             receiver_worker_id=receiver_worker_id,
             message=message
         )
 
-    def send_new_command(self, task_group_id, conversation_id, sender_agent_id, receiver_agent_id, receiver_hit_id, receiver_worker_id, command, command_data=None):
+    def send_new_command(self, task_group_id, conversation_id, sender_agent_id, receiver_agent_id, receiver_assignment_id, receiver_worker_id, command, command_data=None):
         self.send_command_to_agent(
             task_group_id=task_group_id,
             conversation_id=conversation_id,
             sender_agent_id=sender_agent_id,
             receiver_agent_id=receiver_agent_id,
-            receiver_hit_id=receiver_hit_id,
+            receiver_assignment_id=receiver_assignment_id,
             receiver_worker_id=receiver_worker_id,
             command=command,
             command_data=command_data
@@ -630,14 +630,14 @@ class MTurkManager():
         print_and_log(mturk_chat_url, False)
         mturk_page_url = None
 
-        for i in range(num_hits):
-            mturk_page_url, hit_id = create_hit_with_hit_type(
-                page_url=mturk_chat_url,
-                hit_type_id=hit_type_id,
-                num_assignments=1,
-                is_sandbox=self.is_sandbox
-            )
-            self.hit_id_list.append(hit_id)
+        mturk_page_url, hit_id = create_hit_with_hit_type(
+            page_url=mturk_chat_url,
+            hit_type_id=hit_type_id,
+            num_assignments=num_hits,
+            is_sandbox=self.is_sandbox
+        )
+        self.hit_id_list.append(hit_id)
+
         return mturk_page_url
 
     def create_hits(self):
@@ -653,10 +653,6 @@ class MTurkManager():
         # This will only expire HITs that are in "pending" state
         client = get_mturk_client(self.is_sandbox)
         client.update_expiration_for_hit(HITId=hit_id, ExpireAt=datetime(2015, 1, 1)) # Update it to a time in the past, and the HIT will be immediately expired
-
-    def get_hit(self, hit_id):
-        client = get_mturk_client(self.is_sandbox)
-        return client.get_hit(HITId=hit_id)
 
     def expire_all_unassigned_hits(self):
         print_and_log("Expiring all unassigned HITs...")
@@ -727,7 +723,7 @@ class MTurkAgent(Agent):
         self.new_message_lock = threading.Lock()
 
     def is_in_task(self):
-        return 't_' in self.conversation_id
+        return False if not self.conversation_id else 't_' in self.conversation_id
 
     def observe(self, msg):
         self.manager.send_new_command(
@@ -735,7 +731,7 @@ class MTurkAgent(Agent):
             conversation_id=self.conversation_id,
             sender_agent_id='[World]',
             receiver_agent_id=self.id,
-            receiver_hit_id=self.hit_id,
+            receiver_assignment_id=self.assignment_id,
             receiver_worker_id=self.worker_id,
             command=COMMAND_HIDE_WAITING_MESSAGE
         )
@@ -745,7 +741,7 @@ class MTurkAgent(Agent):
             conversation_id=self.conversation_id,
             sender_agent_id=msg['id'],
             receiver_agent_id=self.id,
-            receiver_hit_id=self.hit_id,
+            receiver_assignment_id=self.assignment_id,
             receiver_worker_id=self.worker_id,
             message=msg
         )
@@ -756,7 +752,7 @@ class MTurkAgent(Agent):
             conversation_id=self.conversation_id,
             sender_agent_id='[World]',
             receiver_agent_id=self.id,
-            receiver_hit_id=self.hit_id,
+            receiver_assignment_id=self.assignment_id,
             receiver_worker_id=self.worker_id,
             command=COMMAND_SHOW_INPUT_BOX
         )
@@ -807,7 +803,7 @@ class MTurkAgent(Agent):
                 conversation_id=self.conversation_id,
                 sender_agent_id=msg['id'],
                 receiver_agent_id=self.id,
-                receiver_hit_id=self.hit_id,
+                receiver_assignment_id=self.assignment_id,
                 receiver_worker_id=self.worker_id,
                 message=msg
             )
@@ -817,7 +813,7 @@ class MTurkAgent(Agent):
                 conversation_id=self.conversation_id,
                 sender_agent_id='[World]',
                 receiver_agent_id=self.id,
-                receiver_hit_id=self.hit_id,
+                receiver_assignment_id=self.assignment_id,
                 receiver_worker_id=self.worker_id,
                 command=COMMAND_HIDE_INPUT_BOX
             )
@@ -827,7 +823,7 @@ class MTurkAgent(Agent):
                 conversation_id=self.conversation_id,
                 sender_agent_id='[World]',
                 receiver_agent_id=self.id,
-                receiver_hit_id=self.hit_id,
+                receiver_assignment_id=self.assignment_id,
                 receiver_worker_id=self.worker_id,
                 command=COMMAND_SHOW_WAITING_MESSAGE
             )
@@ -851,7 +847,7 @@ class MTurkAgent(Agent):
             conversation_id=old_conversation_id,
             sender_agent_id='[World]',
             receiver_agent_id=old_agent_id,
-            receiver_hit_id=self.hit_id,
+            receiver_assignment_id=self.assignment_id,
             receiver_worker_id=self.worker_id,
             command=COMMAND_CHANGE_CONVERSATION,
             command_data={
@@ -921,7 +917,7 @@ class MTurkAgent(Agent):
                 conversation_id=self.conversation_id,
                 sender_agent_id='[World]',
                 receiver_agent_id=self.id,
-                receiver_hit_id=self.hit_id,
+                receiver_assignment_id=self.assignment_id,
                 receiver_worker_id=self.worker_id,
                 command=COMMAND_EXPIRE_HIT
             )
@@ -954,7 +950,7 @@ class MTurkAgent(Agent):
                 conversation_id=self.conversation_id,
                 sender_agent_id='[World]',
                 receiver_agent_id=self.id,
-                receiver_hit_id=self.hit_id,
+                receiver_assignment_id=self.assignment_id,
                 receiver_worker_id=self.worker_id,
                 command=command_to_send
             )

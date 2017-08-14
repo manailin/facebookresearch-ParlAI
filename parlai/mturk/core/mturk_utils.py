@@ -246,7 +246,7 @@ def update_notification_settings(hit_type_id, sqs_queue_url, is_sandbox):
             'Transport': 'SQS',
             'Version': '2006-05-05',
             'EventTypes': [
-                'AssignmentReturned'
+                'AssignmentReturned', 'AssignmentAbandoned'
             ]
         },
         Active=True
