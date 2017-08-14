@@ -160,9 +160,9 @@ class MTurkManager():
         response = requests.get(self.server_url+'/clean_database', params=params)
         assert(response.status_code == 200)
 
-        self.check_hit_status_thread = threading.Thread(target=self._check_hit_status)
-        self.check_hit_status_thread.daemon = True
-        self.check_hit_status_thread.start()
+        # self.check_hit_status_thread = threading.Thread(target=self._check_hit_status)
+        # self.check_hit_status_thread.daemon = True
+        # self.check_hit_status_thread.start()
 
         print_and_log("MTurk server setup done.\n")
 
