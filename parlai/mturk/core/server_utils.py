@@ -43,7 +43,7 @@ server_source_directory_name = 'server'
 heroku_server_directory_name = 'heroku_server'
 task_directory_name = 'task'
 
-def create_hit_config(task_description, unique_worker, is_sandbox):
+def create_hit_config(task_description, unique_worker, num_assignments, is_sandbox):
     mturk_submit_url = 'https://workersandbox.mturk.com/mturk/externalSubmit'
     if not is_sandbox:
         mturk_submit_url = 'https://www.mturk.com/mturk/externalSubmit'
@@ -52,6 +52,7 @@ def create_hit_config(task_description, unique_worker, is_sandbox):
         'is_sandbox': is_sandbox,
         'mturk_submit_url': mturk_submit_url,
         'unique_worker': unique_worker,
+        'num_assignments': num_assignments,
     }
     hit_config_file_path = os.path.join(parent_dir, 'hit_config.json')
     if os.path.exists(hit_config_file_path):

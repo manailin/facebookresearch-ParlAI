@@ -149,3 +149,13 @@ exports.assignment_worker_record_exists = async function(task_group_id, assignme
                                 });
     return (existing_record_count > 0);
 }
+
+exports.hit_record_count = async function(task_group_id, hit_id) {
+    var existing_record_count = await MTurkWorkerRecord.count({
+                                    where: { 
+                                        task_group_id: task_group_id,
+                                        hit_id: hit_id
+                                    },
+                                });
+    return existing_record_count;
+}

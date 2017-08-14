@@ -140,6 +140,7 @@ class MTurkManager():
         create_hit_config(
             task_description=self.opt['task_description'],
             unique_worker=self.opt['unique_worker'],
+            num_assignments=self.opt['num_conversations'] * len(self.mturk_agent_ids),
             is_sandbox=self.opt['is_sandbox']
         )
         if not self.task_files_to_copy:
