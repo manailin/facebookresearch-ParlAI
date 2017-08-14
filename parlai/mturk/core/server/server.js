@@ -51,7 +51,7 @@ app.get('/chat_index', async function (req, res) {
   var hit_id = params['hitId'];
   var changing_conversation = params['changing_conversation'] || false;
 
-  if ((await data_model.hit_record_count(task_group_id, hit_id)) == _load_hit_config()['num_assignments']) {
+  if ((!changing_conversation) && (await data_model.hit_record_count(task_group_id, hit_id)) == _load_hit_config()['num_assignments']) {
     res.send('Sorry, there is no HIT available in this group right now.')
   }
   else if ((await data_model.assignment_record_exists(task_group_id, assignment_id)) && !(await data_model.assignment_worker_record_exists(task_group_id, assignment_id, worker_id))) { // This HIT is already returned by another worker
