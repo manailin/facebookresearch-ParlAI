@@ -727,7 +727,7 @@ class MTurkAgent(Agent):
         self.new_message_lock = threading.Lock()
 
     def is_in_task(self):
-        return 't_' in self.conversation_id
+        return False if not self.conversation_id else 't_' in self.conversation_id
 
     def observe(self, msg):
         self.manager.send_new_command(
