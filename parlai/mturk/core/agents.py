@@ -244,6 +244,8 @@ class MTurkManager():
                     self.task_threads.append(task_thread)
 
                     if self.conversation_index == self.opt['num_conversations']:
+                        self.expire_all_unassigned_hits()
+
                         # Wait for all conversations to finish, then break from the while loop
                         for thread in self.task_threads:
                             thread.join() 
