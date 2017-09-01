@@ -172,7 +172,7 @@ class DialogModel(modules.CudaModule):
         h = h.transpose(0, 1).contiguous()
         logit = self.attn(h.view(-1, 2 * self.args.nhid_attn)).view(h.size(0), h.size(1))
         prob = F.softmax(logit).unsqueeze(2).expand_as(h)
-        attn = torch.sum(torch.mul(h, prob), 1, keepdim=True).transpose(0, 1).contiguous()
+        attn = torch.sum(torch.mul(h, prob), 1).transpose(0, 1).contiguous()
 
         # concatenate attention and context hidden and pass it to the selection encoder
         h = torch.cat([attn, ctx_h], 2).squeeze(0)

@@ -30,7 +30,7 @@ class AttributeDict(dict):
         self.__dict__.update(dict_)
 
 
-class DictionaryAgent(Agent):
+class E2EDictionaryAgent(Agent):
     """Wrapper for end-to-end-negotiator's internal dictionary."""
 
     @staticmethod
@@ -134,11 +134,10 @@ class DealnodealAgent(Agent):
     Negotiation Dialogues"
     `(Lewis et al. 2017) <https://arxiv.org/abs/1706.05125>`_.
 
-    Use dealnodeal.DictionaryAgent as the dictionary agent. Furthermore, use
+    Use dealnodeal.E2EDictionaryAgent as the dictionary agent. Furthermore, use
     SelectionTeacher to train or validate the model with, e.g.
 
         $ examples/train_model.py \
-            --dict-class parlai.agents.dealnodeal.dealnodeal:DictionaryAgent \
             --dict-file /tmp/dict.txt \
             -m dealnodeal -t dealnodeal:selection -bs 16 -mf '/tmp/model'
     """
@@ -148,7 +147,7 @@ class DealnodealAgent(Agent):
         """Add command-line arguments specifically for this agent.
         Mostly copied from end-to-end-negotiator/src/train.py.
         """
-        DictionaryAgent.add_cmdline_args(argparser)
+        DealnodealAgent.dictionary_class().add_cmdline_args(argparser)
         group = argparser.add_argument_group('Deal-no-deal Arguments')
         group.add_argument('--nembed_word', type=int, default=256,
             help='size of word embeddings')
@@ -192,10 +191,14 @@ class DealnodealAgent(Agent):
             help='wheather to use RNN for encoding the context')
         return group
 
+    @staticmethod
+    def dictionary_class():
+        return E2EDictionaryAgent
+
     def __init__(self, opt, shared=None):
         super().__init__(opt, shared)
         if not shared:
-            self.dicts = DictionaryAgent(opt)
+            self.dicts = E2EDictionaryAgent(opt)
 
             # the "visual" argument is not being used, but is being checked by
             # end-to-end-negotiator's internals.
@@ -274,7 +277,7 @@ class DealnodealAgent(Agent):
             idxs = self.model.to_device(idxs)
             choices_logits.append(torch.gather(logits[i], 0, idxs).unsqueeze(1))
 
-        choice_logit = torch.sum(torch.cat(choices_logits, 1), 1, keepdim=False)
+        choice_logit = torch.sum(torch.cat(choices_logits, 1), 1)
         # subtract the max to softmax more stable
         choice_logit = choice_logit.sub(choice_logit.max().data[0])
         prob = functional.softmax(choice_logit)
@@ -284,13 +287,13 @@ class DealnodealAgent(Agent):
             logprob = functional.log_softmax(choice_logit).gather(0, idx)
         else:
             # take the most probably choice
-            _, idx = prob.max(0, keepdim=True)
+            _, idx = prob.max(0)
             logprob = None
 
         p_agree = prob[idx.data[0]]
 
         # Pick only your choice
-        return choices[idx.data[0]][:self.domain.selection_length()], logprob, p_agree.data[0]
+        return choices[idx.data[0][0]][:self.domain.selection_length()], logprob, p_agree.data[0]
 
     def train(self, batch):
         # sort by dialogue word count
