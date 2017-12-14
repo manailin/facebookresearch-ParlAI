@@ -141,8 +141,10 @@ class Metrics(object):
             self.metrics['hits@' + str(k)] = 0
         if opt.get('numthreads', 1) > 1:
             self.metrics = SharedTable(self.metrics)
+            self.custom_keys = SharedTable()
+        else:
+            self.custom_keys = {}
         self.datatype = opt.get('datatype', 'train')
-        self.custom_keys = []
 
     def __enter__(self):
         return self
@@ -218,11 +220,10 @@ class Metrics(object):
                 if k not in ['correct', 'f1', 'hits@k']:
                     with self._lock():
                         if k not in self.metrics:
-                            self.custom_keys.append(k)
+                            self.custom_keys[k] = True
                             self.metrics[k] = v
                         else:
                             self.metrics[k] += v
-
         # Return a dict containing the metrics for this specific example.
         # Metrics across all data is stored internally in the class, and
         # can be accessed with the report method.
@@ -242,7 +243,7 @@ class Metrics(object):
             for k in self.eval_pr:
                 m['hits@k'][k] = round_sigfigs(
                     self.metrics['hits@' + str(k)] / total, 3)
-            for k in self.custom_keys:
+            for k in self.custom_keys.keys():
                 if k in self.metrics:
                     m[k] = round_sigfigs(self.metrics[k] / total, 3)
         return m
@@ -254,5 +255,5 @@ class Metrics(object):
             self.metrics['f1'] = 0.0
             for k in self.eval_pr:
                 self.metrics['hits@' + str(k)] = 0
-            for k in self.custom_keys:
+            for k in self.custom_keys.keys():
                 self.metrics.pop(k, None)  # safer then casting to zero
