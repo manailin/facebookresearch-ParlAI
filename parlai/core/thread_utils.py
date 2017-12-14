@@ -5,6 +5,7 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 """Provides utilities useful for multiprocessing."""
 
+<<<<<<< Updated upstream
 from multiprocessing import Lock, RawArray
 try:
     # python3
@@ -12,6 +13,10 @@ try:
 except ImportError:
     # python2
     from collections import MutableMapping
+=======
+from multiprocessing import Lock, RawArray, RawValue
+from collections.abc import MutableMapping
+>>>>>>> Stashed changes
 import ctypes
 import sys
 
@@ -29,65 +34,121 @@ class SharedTable(MutableMapping):
                 tbl['cnt'] += 1
     """
 
-    # currently unused, here for todo below
-    types = {
+    TYPES = {
         str: ctypes.c_wchar_p,
         int: ctypes.c_int,
-        float: ctypes.c_float
+        float: ctypes.c_float,
+        bool: ctypes.c_bool,
     }
 
-    def __init__(self, init_dict=None):
-        """Create a shared memory version of each element of the initial
-        dictionary. Creates an empty array otherwise, which will extend
-        automatically when keys are added.
+    INDS = {
+        str: 0,
+        0: str,
+        int: 1,
+        1: int,
+        float: 2,
+        2: float,
+        bool: 3,
+        3: bool,
+    }
 
-        Each different type (all supported types listed in the ``types`` array
-        above) has its own array. For each key we store an index into the
-        appropriate array as well as the type of value stored for that key.
+    def __init__(self, init_dict=None, extra_space=8):
+        """Creates a set of shared memory arrays of fixed size.
+        Any data in the init dictionary will be put in these shared arrays,
+        and can be accessed and modified in child processes.
+        A fixed amount of extra space will be allocated for adding new keys.
+
+        For each key, we store the type for that key along with the index
+        pointing to the data associated with that key.
+        Linear search is used to match keys with their indices, as the
+        amount of keys / data is expected to be small.
         """
-        # idx is dict of {key: (array_idx, value_type)}
-        self.idx = {}
+        self.len = RawValue('i', 0)
+        # handle size of init_dict plus extra_space keys per type
+        keysz = extra_space * len(self.TYPES)
+        if init_dict is not None:
+            keysz += len(init_dict)
+        self.keys = RawArray(ctypes.c_wchar_p, keysz)
+        # pair array of indices (where in its typed array is each value?)
+        self.indices = RawArray(ctypes.c_int, keysz)
+        # pair array indicating the type of each value
+        self.types = RawArray(ctypes.c_byte, keysz)
+        # pair array indicated when keys are active (del sets this to false)
+        self.active = RawArray(ctypes.c_bool, keysz)
+
         # arrays is dict of {value_type: array_of_ctype}
         self.arrays = {}
+
+        # current size of each array
+        self.sizes = {typ: RawValue('i', 0) for typ in self.TYPES.keys()}
+        # stores tensors (they have to maintain their own shared memory)
+        self.tensors = {}
+
         if init_dict:
-            sizes = {typ: 0 for typ in self.types.keys()}
-            for v in init_dict.values():
-                if type(v) not in sizes:
+            tensor_keys = []
+            for k, v in init_dict.items():
+                if 'Tensor' in str(type(v)):
+                    # add tensor to tensor dict--don't try to put in rawarray
+                    # we'll pop it from the dict afterwards
+                    self.tensors[str(k)] = v
+                    tensor_keys.append(k)
+                elif type(v) not in self.TYPES:
                     raise TypeError('SharedTable does not support values of ' +
                                     'type ' + str(type(v)))
-                sizes[type(v)] += 1
-            for typ, sz in sizes.items():
-                self.arrays[typ] = RawArray(self.types[typ], sz)
-            idxs = {typ: 0 for typ in self.types.keys()}
+                else:
+                    self.sizes[type(v)].value += 1
+
+            # pop tensors from init_dict
+            for k in tensor_keys:
+                init_dict.pop(k)
+
+            # create raw arrays for each type we found
+            for typ, sz in self.sizes.items():
+                self.arrays[typ] = RawArray(self.TYPES[typ], sz.value + extra_space)
+
             for k, v in init_dict.items():
                 val_type = type(v)
-                self.idx[k] = (idxs[val_type], val_type)
-                if val_type == str:
-                    v = sys.intern(v)
-                self.arrays[val_type][idxs[val_type]] = v
-                idxs[val_type] += 1
-        # initialize any needed empty arrays
-        for typ, ctyp in self.types.items():
+                typ_arr = self.arrays[val_type]
+                typ_sz = self.sizes[val_type]
+                key_idx = self.len.value
+                self.keys[key_idx] = str(k)
+                self.types[key_idx] = self.INDS[val_type]
+                self.indices[key_idx] = typ_sz.value
+                self.active[key_idx] = True
+                typ_arr[typ_sz.value] = v
+                typ_sz.value += 1
+                self.len.value += 1
+
+        # initialize any remaining arrays
+        for typ, ctyp in self.TYPES.items():
             if typ not in self.arrays:
-                self.arrays[typ] = RawArray(ctyp, 0)
+                self.arrays[typ] = RawArray(ctyp, extra_space)
         self.lock = Lock()
 
     def __len__(self):
-        return sum(len(a) for a in self.arrays.values())
+        return self.len.value
 
     def __iter__(self):
-        return iter(self.idx)
+        return iter(self.keys)
 
     def __contains__(self, key):
-        return key in self.idx
+        key_idx = self.index(self.keys, key)
+        return key_idx >= 0 and self.active[key_idx]
 
     def __getitem__(self, key):
         """Returns shared value if key is available."""
-        if key in self.idx:
-            idx, typ = self.idx[key]
-            return self.arrays[typ][idx]
-        else:
-            raise KeyError('Key "{}" not found in SharedTable'.format(key))
+        key = str(key)
+        if key in self.tensors:
+            return self.tensors[key]
+
+        key_idx = self.index(self.keys, key)
+        if key_idx < 0 or not self.active[key_idx]:
+            raise KeyError('Key [{}] not found in SharedTable'.format(key))
+
+        arr_idx = self.indices[key_idx]
+        typ = self.INDS[self.types[key_idx]]
+
+        return self.arrays[typ][arr_idx]
 
     def __setitem__(self, key, value):
         """If key is in table, update it. Otherwise, extend the array to make
@@ -97,40 +158,59 @@ class SharedTable(MutableMapping):
         Raises an error if you try to change the type of the value stored for
         that key--if you need to do this, you must delete the key first.
         """
+        key = str(key)
         val_type = type(value)
-        if val_type not in self.types:
+        if 'Tensor' in str(val_type):
+            self.tensors[key] = value
+            return
+
+        if val_type not in self.TYPES:
             raise TypeError('SharedTable does not support type ' + str(type(value)))
+
         if val_type == str:
             value = sys.intern(value)
-        if key in self.idx:
-            idx, typ = self.idx[key]
+
+        key_idx = self.index(self.keys, key)
+        if key_idx >= 0:
+            arr_idx = self.indices[key_idx]
+            typ = self.INDS[self.types[key_idx]]
             if typ != val_type:
                 raise TypeError(('Cannot change stored type for {key} from ' +
                                  '{v1} to {v2}. You need to del the key first' +
                                  ' if you need to change value types.'
                                  ).format(key=key, v1=typ, v2=val_type))
-            self.arrays[typ][idx] = value
+            self.arrays[typ][arr_idx] = value
+            self.active[key_idx] = True
         else:
-            old_array = self.arrays[val_type]
-            ctyp = self.types[val_type]
-            new_array = RawArray(ctyp, len(old_array) + 1)
-            for i in range(len(old_array)):
-                new_array[i] = old_array[i]
-            new_array[-1] = value
-            self.arrays[val_type] = new_array
-            self.idx[key] = (len(new_array) - 1, val_type)
+            # add item to array or raise error if out of space
+            key_idx = self.len.value
+            typ_arr = self.arrays[val_type]
+            typ_sz = self.sizes[val_type]
+            if key_idx == len(self.keys) or typ_sz == len(typ_arr):
+                raise RuntimeError('SharedTable full of data--allocate table '
+                                   'with more extra space.')
+
+            self.keys[key_idx] = key
+            self.active[key_idx] = True
+            self.types[key_idx] = self.INDS[val_type]
+            self.indices[key_idx] = typ_sz.value
+            typ_arr[typ_sz.value] = value
+            typ_sz.value += 1
+            self.len.value += 1
 
     def __delitem__(self, key):
-        if key in self.idx:
-            idx, typ = self.idx[key]
-            old_array = self.arrays[typ]
-            new_array = RawArray(self.types[typ], len(old_array) - 1)
-            for i in range(len(old_array) - 1):
-                new_array[i] = old_array[i]
-            self.arrays[typ] = new_array
-            del self.idx[key]
-        else:
-            raise KeyError('Key "{}" not found in SharedTable'.format(key))
+        key = str(key)
+        if key in self.tensors:
+            del self.tensors[key]
+
+        key_idx = self.index(self.keys, key)
+        if key_idx < 0 or not self.active[key_idx]:
+            raise KeyError('Key [{}] not found in SharedTable'.format(key))
+
+        # set key to inactive, but remember the key and reuse in the future
+        # we don't track empty slots so we can't get the old space back
+        self.active[key_idx] = False
+
 
     def __str__(self):
         """Returns simple dict representation of the mapping."""
@@ -148,3 +228,10 @@ class SharedTable(MutableMapping):
 
     def get_lock(self):
         return self.lock
+
+    def index(self, arr, key):
+        res = [i for i, j in enumerate(arr) if j == key]
+        if len(res) == 0:
+            return -1
+        else:
+            return res[0]
