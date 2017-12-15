@@ -5,18 +5,9 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 """Provides utilities useful for multiprocessing."""
 
-<<<<<<< Updated upstream
-from multiprocessing import Lock, RawArray
-try:
-    # python3
-    from collections.abc import MutableMapping
-except ImportError:
-    # python2
-    from collections import MutableMapping
-=======
 from multiprocessing import Lock, RawArray, RawValue
 from collections.abc import MutableMapping
->>>>>>> Stashed changes
+
 import ctypes
 import sys
 
@@ -68,7 +59,8 @@ class SharedTable(MutableMapping):
         keysz = extra_space * len(self.TYPES)
         if init_dict is not None:
             keysz += len(init_dict)
-        self.keys = RawArray(ctypes.c_wchar_p, keysz)
+        # this doesn't work--can't share string pointers between processes
+        self.key_list = RawArray(ctypes.c_wchar_p, keysz)
         # pair array of indices (where in its typed array is each value?)
         self.indices = RawArray(ctypes.c_int, keysz)
         # pair array indicating the type of each value
@@ -111,7 +103,7 @@ class SharedTable(MutableMapping):
                 typ_arr = self.arrays[val_type]
                 typ_sz = self.sizes[val_type]
                 key_idx = self.len.value
-                self.keys[key_idx] = str(k)
+                self.key_list[key_idx] = str(k)
                 self.types[key_idx] = self.INDS[val_type]
                 self.indices[key_idx] = typ_sz.value
                 self.active[key_idx] = True
@@ -129,19 +121,21 @@ class SharedTable(MutableMapping):
         return self.len.value
 
     def __iter__(self):
-        return iter(self.keys)
+        return iter([k for i, k in enumerate(self.key_list) if k is not None and self.active[i]])
 
     def __contains__(self, key):
-        key_idx = self.index(self.keys, key)
+        if key in self.tensors:
+            return True
+        key_idx = self.index(self.key_list, key)
         return key_idx >= 0 and self.active[key_idx]
 
     def __getitem__(self, key):
         """Returns shared value if key is available."""
-        key = str(key)
+        key = sys.intern(str(key))
         if key in self.tensors:
             return self.tensors[key]
 
-        key_idx = self.index(self.keys, key)
+        key_idx = self.index(self.key_list, key)
         if key_idx < 0 or not self.active[key_idx]:
             raise KeyError('Key [{}] not found in SharedTable'.format(key))
 
@@ -158,8 +152,9 @@ class SharedTable(MutableMapping):
         Raises an error if you try to change the type of the value stored for
         that key--if you need to do this, you must delete the key first.
         """
-        key = str(key)
+        key = sys.intern(str(key))
         val_type = type(value)
+        print('setting', key, 'with value', value, 'of type', val_type)
         if 'Tensor' in str(val_type):
             self.tensors[key] = value
             return
@@ -170,7 +165,7 @@ class SharedTable(MutableMapping):
         if val_type == str:
             value = sys.intern(value)
 
-        key_idx = self.index(self.keys, key)
+        key_idx = self.index(self.key_list, key)
         if key_idx >= 0:
             arr_idx = self.indices[key_idx]
             typ = self.INDS[self.types[key_idx]]
@@ -186,11 +181,14 @@ class SharedTable(MutableMapping):
             key_idx = self.len.value
             typ_arr = self.arrays[val_type]
             typ_sz = self.sizes[val_type]
-            if key_idx == len(self.keys) or typ_sz == len(typ_arr):
+            if key_idx == len(self.key_list) or typ_sz == len(typ_arr):
                 raise RuntimeError('SharedTable full of data--allocate table '
                                    'with more extra space.')
 
-            self.keys[key_idx] = key
+            print('storing key', key, 'of type', type(key), 'in keylist', self.key_list, 'at idx', key_idx)
+            print('keylist was', [i for i in self.key_list])
+            self.key_list[key_idx] = key
+            print('keylist is now', [i for i in self.key_list])
             self.active[key_idx] = True
             self.types[key_idx] = self.INDS[val_type]
             self.indices[key_idx] = typ_sz.value
@@ -199,11 +197,12 @@ class SharedTable(MutableMapping):
             self.len.value += 1
 
     def __delitem__(self, key):
-        key = str(key)
+        key = sys.intern(str(key))
         if key in self.tensors:
             del self.tensors[key]
+            return
 
-        key_idx = self.index(self.keys, key)
+        key_idx = self.index(self.key_list, key)
         if key_idx < 0 or not self.active[key_idx]:
             raise KeyError('Key [{}] not found in SharedTable'.format(key))
 
@@ -216,8 +215,7 @@ class SharedTable(MutableMapping):
         """Returns simple dict representation of the mapping."""
         return '{{{}}}'.format(
             ', '.join(
-                '{k}: {v}'.format(k=key, v=self.arrays[typ][idx])
-                for key, (idx, typ) in self.idx.items()
+                '{k}: {v}'.format(k=k, v=self[k]) for k in self
             )
         )
 
@@ -230,8 +228,12 @@ class SharedTable(MutableMapping):
         return self.lock
 
     def index(self, arr, key):
-        res = [i for i, j in enumerate(arr) if j == key]
-        if len(res) == 0:
-            return -1
-        else:
-            return res[0]
+        print('looking for key', key, type(key))
+        print('arr', arr)
+        # print('in array', [i for i in arr])
+        for j in arr:
+            print(j)
+        for i, j in enumerate(arr):
+            if j == key:
+                return i
+        return -1
