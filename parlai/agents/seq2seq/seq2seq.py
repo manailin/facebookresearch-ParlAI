@@ -294,7 +294,8 @@ class Seq2seqAgent(Agent):
 
     def update_params(self):
         """Do one optimization step."""
-        torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clip)
+        if self.clip > 0:
+            torch.nn.utils.clip_grad_norm(self.model.parameters(), self.clip)
         self.optimizer.step()
 
     def reset(self):
@@ -337,6 +338,7 @@ class Seq2seqAgent(Agent):
         # shallow copy observation (deep copy can be expensive)
         obs = observation.copy()
         obs['persona'], obs['text'] = self.extract_persona(obs.get('text', ''))
+        # obs['persona'], _ = self.extract_persona(obs.get('text', ''))
         batch_idx = self.opt.get('batchindex', 0)
         if not obs.get('preprocessed', False):
             obs['text2vec'] = maintain_dialog_history(
@@ -345,7 +347,7 @@ class Seq2seqAgent(Agent):
                 historyLength=self.opt['history_length'],
                 useReplies=self.opt['history_replies'],
                 dict=self.dict,
-                useStartEndIndices=False)
+                useStartEndIndices=True)
         else:
             obs['text2vec'] = deque(obs['text2vec'], self.opt['history_length'])
         self.observation = obs
@@ -365,6 +367,11 @@ class Seq2seqAgent(Agent):
             self.zero_grad()
             loss = 0
             predictions, scores, _ = self.model(xs, ys, ps=ps)
+            # for i in range(scores.size(1)):
+            #     # sum loss per-token
+            #     score = scores.select(1, i)
+            #     y = ys.select(1, i)
+            #     loss += self.criterion(score, y)
             loss += self.criterion(scores.view(-1, scores.size(-1)), ys.view(-1))
             self.update_params()
             losskey = 'loss' if not lm else 'lmloss'
