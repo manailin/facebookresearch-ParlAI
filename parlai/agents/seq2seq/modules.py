@@ -52,7 +52,7 @@ class Seq2seq(nn.Module):
             self.ranker = Ranker(self.decoder, padding_idx=self.NULL_IDX,
                                  attn_type=opt['attention'])
 
-    def forward(self, xs, ys=None, cands=None, valid_cands=None):
+    def forward(self, xs, ys=None, cands=None, valid_cands=None, ps=None):
         bsz = len(xs)
         if ys is not None:
             # keep track of longest label we've ever seen
@@ -60,7 +60,12 @@ class Seq2seq(nn.Module):
             self.longest_label = max(self.longest_label, ys.size(1))
 
         enc_out, hidden = self.encoder(xs)
-        attn_mask = xs.ne(0).float() if self.attn_type != 'none' else None
+        if ps is not None:
+            # overwrite enc_out (used for attention)
+            enc_out, ps_hid = self.encoder(ps)
+            attn_mask = ps.ne(0).float() if self.attn_type != 'none' else None
+        else:
+            attn_mask = xs.ne(0).float() if self.attn_type != 'none' else None
         start = Variable(self.START, requires_grad=False)
         starts = start.expand(bsz, 1)
 
@@ -157,7 +162,12 @@ class Encoder(nn.Module):
         # embed input tokens
         xes = F.dropout(self.lt(xs), p=self.dropout, training=self.training)
         x_lens = [x for x in torch.sum((xs > 0).int(), dim=1).data]
-        xes_packed = pack_padded_sequence(xes, x_lens, batch_first=True)
+        try:
+            xes_packed = pack_padded_sequence(xes, x_lens, batch_first=True)
+            packed = True
+        except ValueError:
+            xes_packed = xes
+            packed = False
 
         zeros = self.zeros(xs)
         if zeros.size(1) != bsz:
@@ -174,8 +184,13 @@ class Encoder(nn.Module):
 
             # take elementwise max between forward and backward hidden states
             hidden = hidden.view(-1, self.dirs, bsz, self.hsz).max(1)[0]
-        encoder_output, _ = pad_packed_sequence(encoder_output_packed,
-                                                batch_first=True)
+
+        if packed:
+            encoder_output, _ = pad_packed_sequence(encoder_output_packed,
+                                                    batch_first=True)
+        else:
+            encoder_output = encoder_output_packed
+
         return encoder_output, hidden
 
 

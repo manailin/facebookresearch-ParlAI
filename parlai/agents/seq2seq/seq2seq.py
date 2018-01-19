@@ -218,6 +218,7 @@ class Seq2seqAgent(Agent):
             # set up tensors once
             self.xs = torch.LongTensor(1, 1)
             self.ys = torch.LongTensor(1, 1)
+            self.ps = torch.LongTensor(1, 1)
             if self.rank:
                 self.cands = torch.LongTensor(1, 1, 1)
 
@@ -228,6 +229,7 @@ class Seq2seqAgent(Agent):
                 # push to cuda
                 self.xs = self.xs.cuda(async=True)
                 self.ys = self.ys.cuda(async=True)
+                self.ps = self.ps.cuda(async=True)
                 if self.rank:
                     self.cands = self.cands.cuda(async=True)
                 self.criterion.cuda()
@@ -313,12 +315,28 @@ class Seq2seqAgent(Agent):
             shared['states'] = self.states
         return shared
 
+    def extract_persona(self, text):
+        if not hasattr(self, 'persona'):
+            self.persona = ''
+        personas = []
+        ind = text.find('your persona: ')
+        while ind >= 0:
+            new_line = text.find('\n')
+            persona = text[ind + len('your persona: '):new_line]
+            personas.append(persona)
+            text = text[new_line + 1:]
+            ind = text.find('your persona: ')
+        if len(personas) > 0:
+            self.persona = '\n'.join(personas)
+        return self.persona, text
+
     def observe(self, observation):
         """Save observation for act.
         If multiple observations are from the same episode, concatenate them.
         """
         # shallow copy observation (deep copy can be expensive)
         obs = observation.copy()
+        obs['persona'], obs['text'] = self.extract_persona(obs.get('text', ''))
         batch_idx = self.opt.get('batchindex', 0)
         if not obs.get('preprocessed', False):
             obs['text2vec'] = maintain_dialog_history(
@@ -334,7 +352,7 @@ class Seq2seqAgent(Agent):
         self.answers[batch_idx] = None
         return obs
 
-    def predict(self, xs, ys=None, cands=None, valid_cands=None, lm=False):
+    def predict(self, xs, ys=None, cands=None, valid_cands=None, lm=False, ps=None):
         """Produce a prediction from our model.
 
         Update the model using the targets if available, otherwise rank
@@ -346,9 +364,8 @@ class Seq2seqAgent(Agent):
             self.model.train()
             self.zero_grad()
             loss = 0
-            predictions, scores, _ = self.model(xs, ys)
+            predictions, scores, _ = self.model(xs, ys, ps=ps)
             loss += self.criterion(scores.view(-1, scores.size(-1)), ys.view(-1))
-            loss.backward()
             self.update_params()
             losskey = 'loss' if not lm else 'lmloss'
             loss_dict = {losskey: loss.mul(len(xs)).data}
@@ -357,7 +374,7 @@ class Seq2seqAgent(Agent):
         else:
             self.model.eval()
             predictions, scores, text_cand_inds = self.model(xs, ys, cands,
-                                                             valid_cands)
+                                                             valid_cands, ps=ps)
 
         return predictions, text_cand_inds, loss_dict
 
@@ -372,7 +389,7 @@ class Seq2seqAgent(Agent):
                                     enumerate(observations) if valid(ex)])
         except ValueError:
             # zero examples to process in this batch, so zip failed to unpack
-            return None, None, None, None, None, None
+            return None, None, None, None, None, None, None
 
         # set up the input tensors
         bsz = len(exs)
@@ -388,6 +405,7 @@ class Seq2seqAgent(Agent):
         parsed_x = [parsed_x[k] for k in ind_sorted]
 
         labels_avail = any(['labels' in ex for ex in exs])
+
 
         if lm:
             self.xs.resize_(bsz, 1)
@@ -408,6 +426,22 @@ class Seq2seqAgent(Agent):
                 xs = Variable(self.xs)
             else:
                 xs = Variable(xs)
+
+        ps = None
+        if any([ex.get('persona') for ex in exs]):
+            personas = [ex.get('persona', '') for ex in exs]
+            parsed_p = [deque(self.parse(p), maxlen=self.truncate) for p in personas]
+            max_p_len = max([len(p) for p in parsed_p])
+            parsed_p = [p if len(p) == max_p_len else
+                        p + deque((self.NULL_IDX,)) * (max_p_len - len(p))
+                        for p in parsed_p]
+            ps = torch.LongTensor(parsed_p)
+            if self.use_cuda:
+                self.ps.resize_(ps.size())
+                self.ps.copy_(ps, async=True)
+                ps = Variable(self.ps)
+            else:
+                ps = Variable(ps)
 
         # set up the target tensors
         ys = None
@@ -476,7 +510,7 @@ class Seq2seqAgent(Agent):
                 else:
                     cands = Variable(cands)
 
-        return xs, ys, labels, valid_inds, cands, valid_cands
+        return xs, ys, labels, valid_inds, cands, valid_cands, ps
 
     def batch_act(self, observations):
         batchsize = len(observations)
@@ -487,7 +521,7 @@ class Seq2seqAgent(Agent):
         # valid_inds tells us the indices of all valid examples
         # e.g. for input [{}, {'text': 'hello'}, {}, {}], valid_inds is [1]
         # since the other three elements had no 'text' field
-        xs, ys, labels, valid_inds, cands, valid_cands = self.batchify(observations)
+        xs, ys, labels, valid_inds, cands, valid_cands, ps = self.batchify(observations)
 
         if xs is None:
             # no valid examples, just return empty responses
@@ -497,13 +531,13 @@ class Seq2seqAgent(Agent):
             # train on lm task: given [START], predict [x y]
             # (regular task is given [x START] produce [y])
             xs, ys, _, _, _, _ = self.batchify(observations, lm=True)
-            _, _, loss = self.predict(xs, ys, lm=True)
+            _, _, loss = self.predict(xs, ys, lm=True, ps=ps)
             if loss is not None:
                 batch_reply[0]['metrics'] = loss
 
         if self.lm != 'only' or ys is None:
             # produce predictions, train on targets if availables
-            predictions, text_cand_inds, loss = self.predict(xs, ys, cands, valid_cands)
+            predictions, text_cand_inds, loss = self.predict(xs, ys, cands, valid_cands, ps=ps)
             if loss is not None:
                 if 'metrics' in batch_reply[0]:
                     for k, v in loss.items():
