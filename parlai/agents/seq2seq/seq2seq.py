@@ -373,6 +373,7 @@ class Seq2seqAgent(Agent):
             #     y = ys.select(1, i)
             #     loss += self.criterion(score, y)
             loss += self.criterion(scores.view(-1, scores.size(-1)), ys.view(-1))
+            loss.backward()
             self.update_params()
             losskey = 'loss' if not lm else 'lmloss'
             loss_dict = {losskey: loss.mul(len(xs)).data}
@@ -437,7 +438,7 @@ class Seq2seqAgent(Agent):
         ps = None
         if any([ex.get('persona') for ex in exs]):
             personas = [ex.get('persona', '') for ex in exs]
-            parsed_p = [deque(self.parse(p), maxlen=self.truncate) for p in personas]
+            parsed_p = [deque(self.parse(p)) for p in personas]
             max_p_len = max([len(p) for p in parsed_p])
             parsed_p = [p if len(p) == max_p_len else
                         p + deque((self.NULL_IDX,)) * (max_p_len - len(p))

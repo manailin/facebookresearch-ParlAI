@@ -162,6 +162,7 @@ class Encoder(nn.Module):
         # embed input tokens
         xes = F.dropout(self.lt(xs), p=self.dropout, training=self.training)
         x_lens = [x for x in torch.sum((xs > 0).int(), dim=1).data]
+        # xes_packed = pack_padded_sequence(xes, x_lens, batch_first=True)
         try:
             xes_packed = pack_padded_sequence(xes, x_lens, batch_first=True)
             packed = True
@@ -185,6 +186,8 @@ class Encoder(nn.Module):
             # take elementwise max between forward and backward hidden states
             hidden = hidden.view(-1, self.dirs, bsz, self.hsz).max(1)[0]
 
+        # encoder_output, _ = pad_packed_sequence(encoder_output_packed,
+        #                                         batch_first=True)
         if packed:
             encoder_output, _ = pad_packed_sequence(encoder_output_packed,
                                                     batch_first=True)
@@ -235,9 +238,9 @@ class Decoder(nn.Module):
     def forward(self, xs, hidden, encoder_output, attn_mask=None):
         xes = F.dropout(self.lt(xs), p=self.dropout, training=self.training)
         xes = self.attention(xes, hidden, encoder_output, attn_mask)
-        output, new_hidden = self.rnn(xes, hidden)
+        output, hidden = self.rnn(xes, hidden)
         # TODO: add post-attention?
-        # output = self.attention(output, new_hidden, encoder_output, attn_mask)
+        # output = self.attention(output, hidden, encoder_output, attn_mask)
 
         e = F.dropout(self.o2e(output), p=self.dropout, training=self.training)
         scores = F.dropout(self.e2s(e), p=self.dropout, training=self.training)
@@ -245,7 +248,7 @@ class Decoder(nn.Module):
         _max_score, idx = scores.narrow(2, 1, scores.size(2) - 1).max(2)
         preds = idx.add_(1)
 
-        return preds, scores, new_hidden
+        return preds, scores, hidden
 
 
 class Ranker(nn.Module):
@@ -373,9 +376,6 @@ class Ranker(nn.Module):
 
 
 class Linear(nn.Module):
-    """Custom Linear layer which allows for sharing weights (e.g. with an
-    nn.Embedding layer).
-    """
     def __init__(self, in_features, out_features, bias=True,
                  shared_weight=None):
         super().__init__()
@@ -408,10 +408,9 @@ class Linear(nn.Module):
             self.bias.data.uniform_(-stdv, stdv)
 
     def forward(self, input):
+        # detach weight to prevent gradients from changing weight when shared
         weight = self.weight
         if self.shared:
-            # detach weight to prevent gradients from changing weight
-            # (but need to detach every time so weights are up to date)
             weight = weight.detach()
         return F.linear(input, weight, self.bias)
 
