@@ -332,7 +332,7 @@ class Seq2seqAgent(Agent):
         for i in vec:
             if i == self.END_IDX:
                 break
-            elif i != self.START_IDX:
+            elif i != self.START_IDX and i != self.dict['__PERSON1__'] and i != self.dict['__PERSON2__']:
                 new_vec.append(i)
         return self.dict.vec2txt(new_vec)
 

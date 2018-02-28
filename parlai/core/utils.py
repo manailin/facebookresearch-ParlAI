@@ -140,9 +140,8 @@ def flatten(teacher, context_length=-1, include_labels=True):
                 episode_done = action['episode_done']
 
             # build separate episodes from each example
-            p1 = True
             for ex in current:
-                context.append('__PERSON1__ ' + ex.get('text', ''))
+                context.append(ex.get('text', ''))
                 if len(context) > 1:
                     ex['text'] = '\n'.join(context)
                 ex['episode_done'] = True
@@ -150,7 +149,7 @@ def flatten(teacher, context_length=-1, include_labels=True):
                     # add labels to context
                     labels = ex.get('labels', ex.get('eval_labels'))
                     if labels is not None:
-                        context.append('__PERSON2__ ' + random.choice(labels))
+                        context.append(random.choice(labels))
                 data.append(ex)
             # reset flags and content
             episode_done = False
@@ -325,7 +324,7 @@ class PaddingUtils(object):
     Class that contains functions that help with padding input and target tensors.
     """
     @classmethod
-    def pad_text(cls, observations, dictionary, end_idx=None, null_idx=0, dq=False, eval_labels=True, truncate=None):
+    def pad_text(cls, observations, dictionary, end_idx, null_idx, dq=False, eval_labels=True, truncate=None):
         """We check that examples are valid, pad with zeros, and sort by length
            so that we can use the pack_padded function. The list valid_inds
            keeps track of which indices are valid and the order in which we sort
@@ -397,12 +396,11 @@ class PaddingUtils(object):
             if dq:
                 parsed_y = [deque(maxlen=truncate) for _ in labels]
                 for dq, y in zip(parsed_y, labels):
-                    dq.extendleft(reversed(dictionary.txt2vec('__PERSON2__ ' + y)))
+                    dq.extendleft(reversed(dictionary.txt2vec(y)))
             else:
-                parsed_y = [dictionary.txt2vec('__PERSON2__ ' + label) for label in labels]
-            if end_idx is not None:
-                for y in parsed_y:
-                    y.append(end_idx)
+                parsed_y = [dictionary.txt2vec(label) for label in labels]
+            for y in parsed_y:
+                y.append(end_idx)
 
             y_lens = [len(y) for y in parsed_y]
             max_y_len = max(y_lens)
