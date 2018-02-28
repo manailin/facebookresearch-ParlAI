@@ -140,8 +140,9 @@ def flatten(teacher, context_length=-1, include_labels=True):
                 episode_done = action['episode_done']
 
             # build separate episodes from each example
+            p1 = True
             for ex in current:
-                context.append(ex.get('text', ''))
+                context.append('__PERSON1__ ' + ex.get('text', ''))
                 if len(context) > 1:
                     ex['text'] = '\n'.join(context)
                 ex['episode_done'] = True
@@ -149,7 +150,7 @@ def flatten(teacher, context_length=-1, include_labels=True):
                     # add labels to context
                     labels = ex.get('labels', ex.get('eval_labels'))
                     if labels is not None:
-                        context.append(random.choice(labels))
+                        context.append('__PERSON2__ ' + random.choice(labels))
                 data.append(ex)
             # reset flags and content
             episode_done = False
@@ -396,9 +397,9 @@ class PaddingUtils(object):
             if dq:
                 parsed_y = [deque(maxlen=truncate) for _ in labels]
                 for dq, y in zip(parsed_y, labels):
-                    dq.extendleft(reversed(dictionary.txt2vec(y)))
+                    dq.extendleft(reversed(dictionary.txt2vec('__PERSON2__ ' + y)))
             else:
-                parsed_y = [dictionary.txt2vec(label) for label in labels]
+                parsed_y = [dictionary.txt2vec('__PERSON2__ ' + label) for label in labels]
             if end_idx is not None:
                 for y in parsed_y:
                     y.append(end_idx)

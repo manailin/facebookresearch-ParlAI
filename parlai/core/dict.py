@@ -173,6 +173,13 @@ class DictionaryAgent(Agent):
                 self.tok2ind[self.unk_token] = index
                 self.ind2tok[index] = self.unk_token
 
+            index = len(self.tok2ind)
+            self.tok2ind['__PERSON1__'] = index
+            self.ind2tok[index] = '__PERSON1__'
+            index = len(self.tok2ind)
+            self.tok2ind['__PERSON2__'] = index
+            self.ind2tok[index] = '__PERSON2__'
+
             if opt.get('dict_file') and os.path.isfile(opt['dict_file']):
                 # load pre-existing dictionary
                 self.load(opt['dict_file'])
@@ -222,6 +229,9 @@ class DictionaryAgent(Agent):
             if self.unk_token:
                 # fix count for unknown token to one billion
                 self.freq[self.unk_token] = 1000000000
+
+            self.freq['__PERSON1__'] = 999999999
+            self.freq['__PERSON2__'] = 999999998
 
             if opt.get('dict_file'):
                 self.save_path = opt['dict_file']
