@@ -108,7 +108,10 @@ def round_sigfigs(x, sigfigs=4):
     except (RuntimeError, TypeError):
         # handle 1D torch tensors
         # if anything else breaks here please file an issue on Github
-        return round_sigfigs(x[0], sigfigs)
+        if hasattr(x, 'item'):
+            return round_sigfigs(x.item(), sigfigs)
+        else:
+            return round_sigfigs(x[0], sigfigs)
     except (ValueError, OverflowError) as ex:
         if x in [float('inf'), float('-inf')] or x != x:  # inf or nan
             return x
@@ -209,7 +212,7 @@ def make_batches(data, bsz):
 def maintain_dialog_history(history, observation, reply='',
                             historyLength=1, useReplies="labels",
                             dict=None, useStartEndIndices=True,
-                            splitSentences=False):
+                            splitSentences=False, p1='', p2=''):
     """Keeps track of dialog history, up to a truncation length.
     Either includes replies from the labels, model, or not all using param 'replies'."""
 
@@ -243,12 +246,12 @@ def maintain_dialog_history(history, observation, reply='',
     if useReplies != 'none':
         if useReplies == 'model':
             if reply != '':
-                history['dialog'].extend(parse(reply))
+                history['dialog'].extend(parse(p2 + reply))
         elif len(history['labels']) > 0:
             r = history['labels'][0]
-            history['dialog'].extend(parse(r, splitSentences))
+            history['dialog'].extend(parse(p2 + r, splitSentences))
     if 'text' in observation:
-        history['dialog'].extend(parse(observation['text'], splitSentences))
+        history['dialog'].extend(parse(p1 + observation['text'], splitSentences))
 
     history['episode_done'] = observation['episode_done']
     if 'labels' in observation:

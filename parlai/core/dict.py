@@ -256,8 +256,10 @@ class DictionaryAgent(Agent):
             # return token from index, or unk_token
             return self.ind2tok.get(key, self.unk_token)
         elif type(key) == str:
-            # return index from token, or unk_token's index, or None
-            return self.tok2ind.get(key, self.tok2ind.get(self.unk_token, None))
+            return self.tok2ind.get(key, # token index
+                self.tok2ind.get(key.upper(), # check for special tokens
+                    self.tok2ind.get(self.unk_token, # check for unk
+                        None))) # none
 
     def __len__(self):
         return len(self.tok2ind)
