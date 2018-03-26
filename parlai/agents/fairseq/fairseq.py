@@ -13,7 +13,7 @@ except ImportError:
     raise RuntimeError("Please run 'python setup.py build' and "
                        "'python setup.py develop' from the fairseq_py directory")
 from .fairseq_py.fairseq.models import fconv
-from .fairseq_py.fairseq.multiprocessing_trainer import MultiprocessingTrainer
+from .fairseq_py.fairseq.trainer import Trainer
 from .fairseq_py.fairseq import criterions
 from .fairseq_py.fairseq import dictionary
 from .fairseq_py.fairseq.sequence_generator import SequenceGenerator
@@ -32,10 +32,11 @@ import os
 def OptWrapper(opt):
     args = argparse.Namespace()
     for key in opt:
-        if opt[key] is not None:
-            setattr(args, key, opt[key])
-    args.model = models.arch_model_map[args.arch]
-    getattr(models, args.model).parse_arch(args)
+        # if opt[key] is not None:
+        setattr(args, key, opt[key])
+    # args.model = models.ARCH_MODEL_REGISTRY[args.arch]
+    # getattr(models, args.model).parse_arch(args)
+    import pdb; pdb.set_trace()
     return args
 
 
@@ -56,33 +57,47 @@ class FairseqAgent(Agent):
     @staticmethod
     def add_cmdline_args(argparser):
         """Add command-line arguments specifically for this agent."""
+
         DictionaryAgent.add_cmdline_args(argparser)
-        agent = argparser.add_argument_group('Fairseq Arguments')
-        agent.add_argument(
-            '-tr', '--truncate',
-            type=int, default=-1,
-            help='truncate input & output lengths to speed up training (may '
-                 'reduce accuracy). This fixes all input and output to have a '
-                 'maximum length. This reduces the total amount of padding in '
-                 'the batches.')
-        agent.add_argument(
-            '--max-positions',
-            default=1024,
-            type=int,
-            metavar='N',
-            help='max number of tokens in the sequence')
-        agent.add_argument(
-            '--seed',
-            default=1,
-            type=int,
-            metavar='N',
-            help='pseudo random number generator seed')
         options.add_optimization_args(argparser)
-        options.add_generation_args(argparser)
         options.add_model_args(argparser)
+        options.add_distributed_training_args(argparser)
+        import pdb; pdb.set_trace()
+        args = options.parse_args_and_arch(argparser)
+        import pdb; pdb.set_trace()
+        options.add_generation_args(argparser)
+        argparser.set_defaults(path=args.model_file)
+
+        # agent = argparser.add_argument_group('Fairseq Arguments')
+        # agent.add_argument(
+        #     '-tr', '--truncate',
+        #     type=int, default=-1,
+        #     help='truncate input & output lengths to speed up training (may '
+        #          'reduce accuracy). This fixes all input and output to have a '
+        #          'maximum length. This reduces the total amount of padding in '
+        #          'the batches.')
+        # agent.add_argument(
+        #     '--max-positions',
+        #     default=1024,
+        #     type=int,
+        #     metavar='N',
+        #     help='max number of tokens in the sequence')
+        # agent.add_argument(
+        #     '--seed',
+        #     default=1,
+        #     type=int,
+        #     metavar='N',
+        #     help='pseudo random number generator seed')
+        # options.add_optimization_args(argparser)
+        # options.add_model_args(argparser)
+        # options.add_distributed_training_args(argparser)
+        # options.add_generation_args(argparser)
+
+        # fconv.FConvModel.add_args(argparser)
 
     def __init__(self, opt, shared=None):
         # initialize defaults first
+        opt['path'] = opt.get('model_file')
         super().__init__(opt, shared)
         if not shared:
             # this is not a shared instance of this class, so do full
@@ -95,6 +110,7 @@ class FairseqAgent(Agent):
                 new_opt, saved_state = self.load(opt['model_file'])
                 # override options with stored ones
                 opt = self._override_opt(new_opt)
+                self.opt = opt
 
             self.args = OptWrapper(opt)
             self.parlai_dict = DictionaryAgent(opt)
@@ -107,31 +123,33 @@ class FairseqAgent(Agent):
                                .fill_(self.fairseq_dict.eos()))
             self.NULL_IDX = self.fairseq_dict.pad()
 
-            encoder = fconv.FConvEncoder(
-                self.fairseq_dict,
-                embed_dim=self.args.encoder_embed_dim,
-                convolutions=eval(self.args.encoder_layers),
-                dropout=self.args.dropout,
-                max_positions=self.args.max_positions)
-            decoder = fconv.FConvDecoder(
-                self.fairseq_dict,
-                embed_dim=self.args.decoder_embed_dim,
-                convolutions=eval(self.args.decoder_layers),
-                out_embed_dim=self.args.decoder_out_embed_dim,
-                attention=eval(self.args.decoder_attention),
-                dropout=self.args.dropout,
-                max_positions=self.args.max_positions)
-            self.model = fconv.FConvModel(encoder, decoder)
+            self.model = models.build_model(self.args, self.fairseq_dict, self.fairseq_dict)
+            # encoder = fconv.FConvEncoder(
+            #     self.fairseq_dict,
+            #     embed_dim=self.args.encoder_embed_dim,
+            #     convolutions=eval(self.args.encoder_layers),
+            #     dropout=self.args.dropout,
+            #     max_positions=self.args.max_positions)
+            # decoder = fconv.FConvDecoder(
+            #     self.fairseq_dict,
+            #     embed_dim=self.args.decoder_embed_dim,
+            #     convolutions=eval(self.args.decoder_layers),
+            #     out_embed_dim=self.args.decoder_out_embed_dim,
+            #     attention=eval(self.args.decoder_attention),
+            #     dropout=self.args.dropout,
+            #     max_positions=self.args.max_positions)
+            # self.model = fconv.FConvModel(encoder, decoder)
 
             # from fairseq's build_criterion()
-            if self.args.label_smoothing > 0:
-                self.criterion = criterions.LabelSmoothedCrossEntropyCriterion(
-                    self.args.label_smoothing, self.NULL_IDX)
-            else:
-                self.criterion = criterions.CrossEntropyCriterion(
-                    self.args, self.fairseq_dict)
+            # if self.args.label_smoothing > 0:
+            #     self.criterion = criterions.LabelSmoothedCrossEntropyCriterion(
+            #         self.args.label_smoothing, self.NULL_IDX)
+            # else:
+            #     self.criterion = criterions.CrossEntropyCriterion(
+            #         self.args, self.fairseq_dict)
+            self.criterion = criterions.build_criterion(self.args, self.fairseq_dict, self.fairseq_dict)
 
-            self.trainer = MultiprocessingTrainer(self.args, self.model, self.criterion)
+            self.trainer = Trainer(self.args, self.model, self.criterion)
             if saved_state is not None:
                 self.set_states(saved_state)
         self.reset()

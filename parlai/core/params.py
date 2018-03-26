@@ -246,10 +246,8 @@ class ParlaiParser(argparse.ArgumentParser):
     def add_task_args(self, args):
         # Find which task specified, and add its specific arguments.
         args = sys.argv if args is None else args
-        task = None
-        for index, item in enumerate(args):
-            if item == '-t' or item == '--task':
-                task = args[index + 1]
+        parsed, _ = self.parse_known_args(args)
+        task = parsed.task
         if task:
             for t in ids_to_tasks(task).split(','):
                 agent = get_task_module(t)
@@ -270,10 +268,8 @@ class ParlaiParser(argparse.ArgumentParser):
         # Find which model specified, and add its specific arguments.
         if args is None:
             args = sys.argv
-        model = None
-        for index, item in enumerate(args):
-            if item == '-m' or item == '--model':
-                model = args[index + 1]
+        parsed, _ = self.parse_known_args(args)
+        model = parsed.model
         if model:
             agent = get_agent_module(model)
             if hasattr(agent, 'add_cmdline_args'):
@@ -285,10 +281,8 @@ class ParlaiParser(argparse.ArgumentParser):
     def add_image_args(self, args=None):
         # Find which image mode specified, add its specific arguments if needed.
         args = sys.argv if args is None else args
-        image_mode = None
-        for index, item in enumerate(args):
-            if item == '-im' or item == '--image-mode':
-                image_mode = args[index + 1]
+        parsed, _ = self.parse_known_args(args)
+        image_mode = parsed.image_mode
         if image_mode and image_mode != 'none':
             parlai = \
                 self.add_argument_group('ParlAI Image Preprocessing Arguments')
