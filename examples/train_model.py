@@ -31,8 +31,8 @@ from examples.build_dict import build_dict
 import math
 import os
 
-def setup_args(model_args=None):
-    parser = ParlaiParser(True, True, model_argv=model_args)
+def setup_args():
+    parser = ParlaiParser(True, True)
     train = parser.add_argument_group('Training Loop Arguments')
     train.add_argument('-et', '--evaltask',
                        help=('task to use for valid/test (defaults to the '
